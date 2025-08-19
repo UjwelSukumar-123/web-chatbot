@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Chatbot (Powered by Gemini)</title>
+    <title>Integrated Web Chatbot System</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
     <style>
         body {
@@ -23,7 +23,7 @@
             border-radius: 15px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
             width: 90%;
-            max-width: 700px;
+            max-width: 800px;
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -46,11 +46,92 @@
             letter-spacing: 1px;
         }
 
+        .status-bar {
+            background-color: #f8f9fa;
+            padding: 15px 20px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.9em;
+        }
+
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-indicator.success { background-color: #28a745; }
+        .status-indicator.warning { background-color: #ffc107; }
+        .status-indicator.error { background-color: #dc3545; }
+        .status-indicator.loading { background-color: #17a2b8; }
+
+        .chatbot-selector {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .chatbot-selector label {
+            font-weight: 500;
+            color: #555;
+        }
+
+        .chatbot-selector select {
+            padding: 5px 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: white;
+        }
+
+        .scraping-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .scraping-controls button {
+            padding: 5px 15px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.8em;
+            transition: background-color 0.3s;
+        }
+
+        .scraping-controls button.primary {
+            background-color: #28a745;
+            color: white;
+        }
+
+        .scraping-controls button.primary:hover {
+            background-color: #218838;
+        }
+
+        .scraping-controls button.secondary {
+            background-color: #6c757d;
+            color: white;
+        }
+
+        .scraping-controls button.secondary:hover {
+            background-color: #5a6268;
+        }
+
         .chat-box {
             flex-grow: 1;
             padding: 20px;
             overflow-y: auto;
-            max-height: 500px; /* Limit chat box height */
+            max-height: 500px;
             background-color: #f9f9f9;
             border-bottom: 1px solid #eee;
         }
@@ -79,30 +160,32 @@
         }
 
         .message-bubble.user {
-            background-color: #e0f2f7; /* Light blue */
+            background-color: #e0f2f7;
             color: #333;
             border-bottom-right-radius: 5px;
         }
 
         .message-bubble.bot {
-            background-color: #d1c4e9; /* Light purple */
+            background-color: #d1c4e9;
             color: #333;
             border-bottom-left-radius: 5px;
         }
 
-        .source-links { /* Changed from .source-link to .source-links */
+        .source-links {
             font-size: 0.8em;
             margin-top: 5px;
             color: #666;
             display: block;
         }
+        
         .source-links a {
             color: #2575fc;
             text-decoration: none;
             font-weight: bold;
-            margin-right: 8px; /* Spacing between multiple links */
-            display: inline-block; /* Allow links to wrap */
+            margin-right: 8px;
+            display: inline-block;
         }
+        
         .source-links a:hover {
             text-decoration: underline;
         }
@@ -152,7 +235,6 @@
             transform: translateY(0);
         }
 
-        /* Responsive adjustments */
         @media (max-width: 600px) {
             .chat-container {
                 width: 95%;
@@ -161,6 +243,10 @@
             .chat-header {
                 font-size: 1.2em;
                 padding: 15px;
+            }
+            .status-bar {
+                flex-direction: column;
+                align-items: stretch;
             }
             .chat-box {
                 padding: 15px;
@@ -176,7 +262,7 @@
             }
             .chat-input-area input[type="text"] {
                 margin-bottom: 10px;
-                width: calc(100% - 30px); /* Adjust for padding */
+                width: calc(100% - 30px);
             }
             .chat-input-area button {
                 width: 100%;
@@ -188,15 +274,37 @@
 <body>
     <div class="chat-container">
         <div class="chat-header">
-            AI CHATBOT
+            🌐 INTEGRATED WEB CHATBOT SYSTEM
         </div>
+        
+        <div class="status-bar">
+            <div class="status-item">
+                <span class="status-indicator" id="scraping-status-indicator"></span>
+                <span id="scraping-status-text">Checking status...</span>
+            </div>
+            
+            <div class="chatbot-selector">
+                <label for="chatbot-type">Chatbot:</label>
+                <select id="chatbot-type">
+                    <option value="gemini">🤖 Gemini AI</option>
+                    <option value="basic">🔍 Basic Semantic</option>
+                </select>
+            </div>
+            
+            <div class="scraping-controls">
+                <button class="primary" onclick="startScraping()" id="scraping-btn">🔄 Start Scraping</button>
+                <button class="secondary" onclick="checkStatus()">📊 Check Status</button>
+            </div>
+        </div>
+        
         <div class="chat-box" id="chat-box">
             <div class="message bot">
                 <div class="message-bubble bot">
-                    Hello! Ask me anything
+                    Hello! I'm your integrated web chatbot. I can use either Gemini AI or basic semantic search to answer your questions about the scraped website data.
                 </div>
             </div>
         </div>
+        
         <div class="chat-input-area">
             <input type="text" id="user-input" placeholder="Type your question...">
             <button onclick="sendMessage()">Send</button>
@@ -204,6 +312,89 @@
     </div>
 
     <script>
+        let currentChatbotType = 'gemini';
+        
+        // Initialize status on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            checkStatus();
+            updateScrapingButton();
+            
+            // Set up chatbot type change handler
+            document.getElementById('chatbot-type').addEventListener('change', function() {
+                currentChatbotType = this.value;
+                console.log('Switched to chatbot type:', currentChatbotType);
+            });
+        });
+
+        function updateScrapingButton() {
+            const btn = document.getElementById('scraping-btn');
+            const indicator = document.getElementById('scraping-status-indicator');
+            const statusText = document.getElementById('scraping-status-text');
+            
+            // Check current status
+            fetch('/scraping_status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.scraping_in_progress) {
+                        btn.textContent = '⏳ Scraping...';
+                        btn.disabled = true;
+                        indicator.className = 'status-indicator loading';
+                        statusText.textContent = 'Scraping in progress...';
+                    } else if (data.scraping_complete) {
+                        btn.textContent = '✅ Scraping Complete';
+                        btn.disabled = true;
+                        indicator.className = 'status-indicator success';
+                        statusText.textContent = `Scraping complete! ${data.total_pages} pages loaded`;
+                    } else {
+                        btn.textContent = '🔄 Start Scraping';
+                        btn.disabled = false;
+                        indicator.className = 'status-indicator warning';
+                        statusText.textContent = 'Ready to scrape';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error checking status:', error);
+                    indicator.className = 'status-indicator error';
+                    statusText.textContent = 'Error checking status';
+                });
+        }
+
+        function startScraping() {
+            const btn = document.getElementById('scraping-btn');
+            btn.textContent = '⏳ Starting...';
+            btn.disabled = true;
+            
+            fetch('/start_scraping', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'started') {
+                    // Start polling for status updates
+                    const statusInterval = setInterval(() => {
+                        updateScrapingButton();
+                        fetch('/scraping_status')
+                            .then(response => response.json())
+                            .then(statusData => {
+                                if (!statusData.scraping_in_progress) {
+                                    clearInterval(statusInterval);
+                                    updateScrapingButton();
+                                }
+                            });
+                    }, 2000);
+                }
+            })
+            .catch(error => {
+                console.error('Error starting scraping:', error);
+                btn.textContent = '❌ Error';
+                setTimeout(() => updateScrapingButton(), 3000);
+            });
+        }
+
+        function checkStatus() {
+            updateScrapingButton();
+        }
+
         function sendMessage() {
             const userInput = document.getElementById('user-input');
             const chatBox = document.getElementById('chat-box');
@@ -219,8 +410,8 @@
             userMessageDiv.innerHTML = `<div class="message-bubble user">${question}</div>`;
             chatBox.appendChild(userMessageDiv);
 
-            userInput.value = ''; // Clear input field
-            chatBox.scrollTop = chatBox.scrollHeight; // Scroll to bottom
+            userInput.value = '';
+            chatBox.scrollTop = chatBox.scrollHeight;
 
             // Display "Typing..." message
             const typingMessageDiv = document.createElement('div');
@@ -230,14 +421,14 @@
             chatBox.appendChild(typingMessageDiv);
             chatBox.scrollTop = chatBox.scrollHeight;
 
+            // Send question to Flask backend with chatbot type
+            const formData = new FormData();
+            formData.append('question', question);
+            formData.append('chatbot_type', currentChatbotType);
 
-            // Send question to Flask backend
             fetch('/ask', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: `question=${encodeURIComponent(question)}`
+                body: formData
             })
             .then(response => response.json())
             .then(data => {
@@ -262,7 +453,7 @@
                 botMessageContent += `</div>`;
                 botMessageDiv.innerHTML = botMessageContent;
                 chatBox.appendChild(botMessageDiv);
-                chatBox.scrollTop = chatBox.scrollHeight; 
+                chatBox.scrollTop = chatBox.scrollHeight;
             })
             .catch(error => {
                 console.error('Error:', error);
@@ -287,7 +478,7 @@
             }
         });
 
-        // Scroll to bottom on initial load (for potential pre-existing messages)
+        // Scroll to bottom on initial load
         document.addEventListener('DOMContentLoaded', () => {
             const chatBox = document.getElementById('chat-box');
             chatBox.scrollTop = chatBox.scrollHeight;
