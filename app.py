@@ -49,6 +49,7 @@ scraped_data_texts = []
 scraped_data_embeddings = None
 scraping_in_progress = False
 scraping_complete = False
+target_website = "https://inciem.com"  # Default website
 
 # === Scraping Function ===
 def run_scraper():
@@ -58,8 +59,8 @@ def run_scraper():
     print("🕷️ Starting web scraping...")
     
     try:
-        # Run the scraper
-        website = "https://inciem.com"
+        # Run the scraper using the target website
+        website = target_website
         print(f"🎯 Scraping website: {website}")
         
         general_scraped_data, structured_scraped_data = crawl_website(website, max_pages=50)
@@ -321,7 +322,8 @@ def get_scraping_status():
         "scraping_in_progress": scraping_in_progress,
         "scraping_complete": scraping_complete,
         "data_loaded": len(scraped_data_pages) > 0,
-        "total_pages": len(scraped_data_pages)
+        "total_pages": len(scraped_data_pages),
+        "target_website": target_website
     })
 
 # === Manual Scraping Route ===
@@ -336,6 +338,66 @@ def start_scraping():
     thread.start()
     
     return jsonify({"status": "started", "message": "Scraping started successfully"})
+
+# === Set Website URL Route ===
+@app.route('/set_website', methods=['POST'])
+def set_website():
+    global target_website
+    try:
+        data = request.get_json()
+        new_website = data.get('website', '').strip()
+        
+        if not new_website:
+            return jsonify({"status": "error", "message": "Website URL is required"})
+        
+        # Basic URL validation
+        if not new_website.startswith(('http://', 'https://')):
+            new_website = 'https://' + new_website
+        
+        target_website = new_website
+        print(f"🎯 Target website updated to: {target_website}")
+        
+        return jsonify({
+            "status": "success", 
+            "message": f"Website updated to {target_website}",
+            "website": target_website
+        })
+        
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Error setting website: {str(e)}"})
+
+# === Get Current Website Route ===
+@app.route('/get_website')
+def get_website():
+    return jsonify({
+        "website": target_website,
+        "status": "success"
+    })
+
+# === Reset Data Route ===
+@app.route('/reset_data', methods=['POST'])
+def reset_data():
+    global scraped_data_pages, scraped_data_texts, scraped_data_embeddings, scraping_complete
+    
+    try:
+        # Clear all scraped data
+        scraped_data_pages = []
+        scraped_data_texts = []
+        scraped_data_embeddings = None
+        scraping_complete = False
+        
+        print("🗑️ All scraped data has been reset")
+        
+        return jsonify({
+            "status": "success",
+            "message": "All scraped data has been reset"
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "status": "error", 
+            "message": f"Error resetting data: {str(e)}"
+        })
 
 # === Health Check Route ===
 @app.route('/health')
