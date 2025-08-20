@@ -46,6 +46,16 @@
             letter-spacing: 1px;
         }
 
+        .header-title {
+            font-size: 1.2em;
+            margin-bottom: 5px;
+        }
+
+        .header-subtitle {
+            font-size: 0.8em;
+            color: #e0e0e0;
+        }
+
         .status-bar {
             background-color: #f8f9fa;
             padding: 15px 20px;
@@ -235,6 +245,72 @@
             transform: translateY(0);
         }
 
+        .website-input-section {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .website-input-section label {
+            font-weight: 500;
+            color: #555;
+        }
+
+        .website-input-section input[type="text"] {
+            padding: 5px 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 0.9em;
+        }
+
+        .website-input-section input[type="text"]:disabled {
+            background-color: #f5f5f5;
+            color: #999;
+            cursor: not-allowed;
+        }
+
+        .website-input-section .update-btn {
+            padding: 5px 10px;
+            border: none;
+            border-radius: 5px;
+            background-color: #2575fc;
+            color: white;
+            cursor: pointer;
+            font-size: 0.8em;
+            transition: background-color 0.3s;
+        }
+
+        .website-input-section .update-btn:hover:not(:disabled) {
+            background-color: #1a5ac5;
+        }
+
+        .website-input-section .update-btn:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        .website-input-section .reset-btn {
+            padding: 5px 10px;
+            border: none;
+            border-radius: 5px;
+            background-color: #dc3545;
+            color: white;
+            cursor: pointer;
+            font-size: 0.8em;
+            transition: background-color 0.3s;
+        }
+
+        .website-input-section .reset-btn:hover {
+            background-color: #c82333;
+        }
+
+        .current-website {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 2px;
+            font-style: italic;
+        }
+
         @media (max-width: 600px) {
             .chat-container {
                 width: 95%;
@@ -268,19 +344,44 @@
                 width: 100%;
                 margin-left: 0;
             }
+            .website-input-section {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 5px;
+            }
+            .website-input-section input[type="text"] {
+                width: 100%;
+            }
+            .website-input-section .update-btn {
+                width: 100%;
+                margin-left: 0;
+            }
+            .website-input-section .reset-btn {
+                width: 100%;
+                margin-left: 0;
+            }
         }
     </style>
 </head>
 <body>
     <div class="chat-container">
         <div class="chat-header">
-            🌐 INTEGRATED WEB CHATBOT SYSTEM
+            <div class="header-title">🌐 INTEGRATED WEB CHATBOT SYSTEM</div>
+            <div class="header-subtitle" id="header-website">Target: https://inciem.com</div>
         </div>
         
         <div class="status-bar">
             <div class="status-item">
                 <span class="status-indicator" id="scraping-status-indicator"></span>
                 <span id="scraping-status-text">Checking status...</span>
+                <div class="current-website" id="current-website-display">Current Website: https://inciem.com</div>
+            </div>
+            
+            <div class="website-input-section">
+                <label for="website-url">Target Website:</label>
+                <input type="text" id="website-url" placeholder="Enter website URL..." value="https://inciem.com">
+                <button onclick="updateWebsite()" class="update-btn">Update</button>
+                <button onclick="manualResetData()" class="reset-btn">Reset Data</button>
             </div>
             
             <div class="chatbot-selector">
@@ -300,7 +401,7 @@
         <div class="chat-box" id="chat-box">
             <div class="message bot">
                 <div class="message-bubble bot">
-                    Hello! I'm your integrated web chatbot. I can use either Gemini AI or basic semantic search to answer your questions about the scraped website data.
+                    Hello! I'm your integrated web chatbot. I can use either Gemini AI or basic semantic search to answer your questions about the scraped website data. Current target: <strong id="welcome-website">https://inciem.com</strong><br><br>Please start scraping to begin gathering data from this website.
                 </div>
             </div>
         </div>
@@ -313,11 +414,13 @@
 
     <script>
         let currentChatbotType = 'gemini';
+        let scrapingSuccessShown = false;
         
         // Initialize status on page load
         document.addEventListener('DOMContentLoaded', function() {
             checkStatus();
             updateScrapingButton();
+            loadCurrentWebsite();
             
             // Set up chatbot type change handler
             document.getElementById('chatbot-type').addEventListener('change', function() {
@@ -325,6 +428,27 @@
                 console.log('Switched to chatbot type:', currentChatbotType);
             });
         });
+
+        function updatePageTitle(website) {
+            document.title = `Web Chatbot - ${website}`;
+        }
+
+        function loadCurrentWebsite() {
+            fetch('/get_website')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        document.getElementById('website-url').value = data.website;
+                        document.getElementById('header-website').textContent = `Target: ${data.website}`;
+                        document.getElementById('current-website-display').textContent = `Current Website: ${data.website}`;
+                        document.getElementById('welcome-website').textContent = data.website;
+                        updatePageTitle(data.website);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading current website:', error);
+                });
+        }
 
         function updateScrapingButton() {
             const btn = document.getElementById('scraping-btn');
@@ -345,11 +469,30 @@
                         btn.disabled = true;
                         indicator.className = 'status-indicator success';
                         statusText.textContent = `Scraping complete! ${data.total_pages} pages loaded`;
+                        
+                        // Show success message in chat only once
+                        if (!scrapingSuccessShown) {
+                            const chatBox = document.getElementById('chat-box');
+                            const successMessageDiv = document.createElement('div');
+                            successMessageDiv.className = 'message bot';
+                            successMessageDiv.innerHTML = `<div class="message-bubble bot">🎉 Scraping completed successfully! I've gathered data from <strong>${data.total_pages}</strong> pages from <strong>${data.target_website}</strong>. You can now ask me questions about this website's content.</div>`;
+                            chatBox.appendChild(successMessageDiv);
+                            chatBox.scrollTop = chatBox.scrollHeight;
+                            scrapingSuccessShown = true;
+                        }
                     } else {
                         btn.textContent = '🔄 Start Scraping';
                         btn.disabled = false;
                         indicator.className = 'status-indicator warning';
                         statusText.textContent = 'Ready to scrape';
+                    }
+                    
+                    // Update current website display
+                    if (data.target_website) {
+                        document.getElementById('header-website').textContent = `Target: ${data.target_website}`;
+                        document.getElementById('current-website-display').textContent = `Current Website: ${data.target_website}`;
+                        document.getElementById('welcome-website').textContent = data.target_website;
+                        updatePageTitle(data.target_website);
                     }
                 })
                 .catch(error => {
@@ -361,8 +504,12 @@
 
         function startScraping() {
             const btn = document.getElementById('scraping-btn');
+            const websiteUrl = document.getElementById('website-url').value;
+            const statusText = document.getElementById('scraping-status-text');
+            
             btn.textContent = '⏳ Starting...';
             btn.disabled = true;
+            statusText.textContent = `Starting scraping for ${websiteUrl}...`;
             
             fetch('/start_scraping', {
                 method: 'POST'
@@ -387,12 +534,135 @@
             .catch(error => {
                 console.error('Error starting scraping:', error);
                 btn.textContent = '❌ Error';
+                statusText.textContent = 'Error starting scraping';
                 setTimeout(() => updateScrapingButton(), 3000);
             });
         }
 
         function checkStatus() {
             updateScrapingButton();
+        }
+
+        function updateWebsite() {
+            const websiteUrl = document.getElementById('website-url').value;
+            const indicator = document.getElementById('scraping-status-indicator');
+            const statusText = document.getElementById('scraping-status-text');
+            const btn = document.getElementById('scraping-btn');
+            const updateBtn = document.querySelector('.update-btn');
+            const headerWebsite = document.getElementById('header-website');
+            const welcomeWebsite = document.getElementById('welcome-website');
+
+            if (!websiteUrl.trim()) {
+                alert('Please enter a website URL');
+                return;
+            }
+
+            // Disable input and buttons during update
+            document.getElementById('website-url').disabled = true;
+            updateBtn.disabled = true;
+            updateBtn.textContent = 'Updating...';
+            headerWebsite.textContent = `Target: ${websiteUrl}`;
+            welcomeWebsite.textContent = websiteUrl;
+            updatePageTitle(websiteUrl);
+
+            indicator.className = 'status-indicator loading';
+            statusText.textContent = 'Updating website...';
+            btn.textContent = '⏳ Updating...';
+            btn.disabled = true;
+
+            fetch('/set_website', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ website: websiteUrl })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    indicator.className = 'status-indicator success';
+                    statusText.textContent = 'Website updated successfully! Data will be reset.';
+                    btn.textContent = '✅ Updated';
+                    btn.disabled = true;
+                    
+                    // Automatically reset data when website changes
+                    setTimeout(() => {
+                        scrapingSuccessShown = false; // Reset flag for new website
+                        resetData();
+                    }, 1500);
+                } else {
+                    indicator.className = 'status-indicator error';
+                    statusText.textContent = data.message || 'Failed to update website.';
+                    btn.textContent = '❌ Error';
+                    btn.disabled = false;
+                }
+            })
+            .catch(error => {
+                console.error('Error updating website:', error);
+                indicator.className = 'status-indicator error';
+                statusText.textContent = 'Error updating website.';
+                btn.textContent = '❌ Error';
+                btn.disabled = false;
+            })
+            .finally(() => {
+                // Re-enable input and buttons
+                document.getElementById('website-url').disabled = false;
+                updateBtn.disabled = false;
+                updateBtn.textContent = 'Update';
+            });
+        }
+
+        function resetData() {
+            const indicator = document.getElementById('scraping-status-indicator');
+            const statusText = document.getElementById('scraping-status-text');
+            const btn = document.getElementById('scraping-btn');
+            const headerWebsite = document.getElementById('header-website');
+            const welcomeWebsite = document.getElementById('welcome-website');
+
+            indicator.className = 'status-indicator loading';
+            statusText.textContent = 'Resetting data...';
+            btn.textContent = '⏳ Resetting...';
+            btn.disabled = true;
+            headerWebsite.textContent = `Target: ${document.getElementById('website-url').value}`;
+            welcomeWebsite.textContent = document.getElementById('website-url').value;
+            updatePageTitle(document.getElementById('website-url').value);
+
+            fetch('/reset_data', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    indicator.className = 'status-indicator success';
+                    statusText.textContent = 'Data reset successfully! Ready for new scraping.';
+                    btn.textContent = '🔄 Start Scraping';
+                    btn.disabled = false;
+                    
+                    // Clear chat box to indicate fresh start
+                    const chatBox = document.getElementById('chat-box');
+                    const currentWebsite = document.getElementById('website-url').value;
+                    chatBox.innerHTML = `<div class="message bot"><div class="message-bubble bot">Hello! I'm your integrated web chatbot. I can use either Gemini AI or basic semantic search to answer your questions about the scraped website data. Current target: <strong>${currentWebsite}</strong><br><br>Please start scraping to begin gathering data from this website.</div></div>`;
+                } else {
+                    indicator.className = 'status-indicator error';
+                    statusText.textContent = data.message || 'Failed to reset data.';
+                    btn.textContent = '❌ Error';
+                    btn.disabled = false;
+                }
+            })
+            .catch(error => {
+                console.error('Error resetting data:', error);
+                indicator.className = 'status-indicator error';
+                statusText.textContent = 'Error resetting data.';
+                btn.textContent = '❌ Error';
+                btn.disabled = false;
+            });
+        }
+
+        function manualResetData() {
+            if (confirm('Are you sure you want to reset all scraped data? This action cannot be undone.')) {
+                scrapingSuccessShown = false; // Reset flag
+                resetData();
+            }
         }
 
         function sendMessage() {
