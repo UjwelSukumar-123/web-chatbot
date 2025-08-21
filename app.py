@@ -49,7 +49,7 @@ scraped_data_texts = []
 scraped_data_embeddings = None
 scraping_in_progress = False
 scraping_complete = False
-target_website = "https://inciem.com"  # Default website
+# target_website = "https://inciem.com"  # Default website
 
 # === Scraping Function ===
 def run_scraper():
