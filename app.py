@@ -7,6 +7,14 @@ from dotenv import load_dotenv
 import threading
 import time
 
+# Try to import torch, fallback to numpy if not available
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    print("⚠️ PyTorch not available, using numpy fallback for tensor operations")
+
 # Import scraper functionality
 from deep_scraper import crawl_website
 
@@ -50,6 +58,11 @@ scraped_data_embeddings = None
 scraping_in_progress = False
 scraping_complete = False
 # target_website = "https://inciem.com"  # Default website
+
+# === Custom Data Store ===
+custom_data_texts = []
+custom_data_embeddings = None
+custom_data_sources = []  # Store metadata about custom data entries
 
 # === Scraping Function ===
 def run_scraper():
@@ -147,6 +160,152 @@ def load_scraped_data(file_path):
         print(f"❌ Error loading scraped data: {e}")
         return []
 
+# === Load Custom Data ===
+def load_custom_data():
+    """Load custom data from file if it exists"""
+    global custom_data_texts, custom_data_embeddings, custom_data_sources
+    
+    custom_data_file = "custom_data.txt"
+    if not os.path.exists(custom_data_file):
+        return []
+    
+    try:
+        with open(custom_data_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        
+        if not content.strip():
+            return []
+        
+        entries = content.split("--- CUSTOM ENTRY ---")
+        custom_data_texts = []
+        custom_data_sources = []
+        
+        for entry in entries:
+            if not entry.strip():
+                continue
+            
+            lines = entry.strip().split('\n')
+            if len(lines) >= 3:
+                title = lines[0].strip()
+                category = lines[1].strip()
+                text = '\n'.join(lines[2:]).strip()
+                
+                if text:
+                    custom_data_texts.append(text)
+                    custom_data_sources.append({
+                        'title': title,
+                        'category': category,
+                        'type': 'custom'
+                    })
+        
+        # Create embeddings for custom data if embedder is available
+        if embedder and custom_data_texts:
+            try:
+                custom_data_embeddings = embedder.encode(custom_data_texts, convert_to_tensor=True)
+                print(f"✅ Created embeddings for {len(custom_data_texts)} custom data entries.")
+            except Exception as e:
+                print(f"❌ Error creating custom data embeddings: {e}")
+                custom_data_embeddings = np.array([])
+        
+        return custom_data_texts
+    except Exception as e:
+        print(f"❌ Error loading custom data: {e}")
+        return []
+
+# === Save Custom Data ===
+def save_custom_data():
+    """Save custom data to file"""
+    try:
+        custom_data_file = "custom_data.txt"
+        with open(custom_data_file, "w", encoding="utf-8") as f:
+            for i, (text, source) in enumerate(zip(custom_data_texts, custom_data_sources)):
+                f.write(f"{source['title']}\n")
+                f.write(f"{source['category']}\n")
+                f.write(f"{text}\n")
+                if i < len(custom_data_texts) - 1:
+                    f.write("--- CUSTOM ENTRY ---\n")
+        
+        print(f"✅ Custom data saved to {custom_data_file}")
+        return True
+    except Exception as e:
+        print(f"❌ Error saving custom data: {e}")
+        return False
+
+# === Add Custom Data ===
+def add_custom_data(title, category, content):
+    """Add new custom data entry"""
+    global custom_data_texts, custom_data_embeddings, custom_data_sources
+    
+    if not title.strip() or not category.strip() or not content.strip():
+        return False, "All fields are required"
+    
+    # Add the new entry
+    custom_data_texts.append(content.strip())
+    custom_data_sources.append({
+        'title': title.strip(),
+        'category': category.strip(),
+        'type': 'custom'
+    })
+    
+    # Update embeddings if embedder is available
+    if embedder:
+        try:
+            # Create new embedding for the added content
+            new_embedding = embedder.encode([content.strip()], convert_to_tensor=True)
+            
+            if custom_data_embeddings is None:
+                custom_data_embeddings = new_embedding
+            else:
+                # Concatenate with existing embeddings
+                if TORCH_AVAILABLE:
+                    custom_data_embeddings = torch.cat([custom_data_embeddings, new_embedding], dim=0)
+                else:
+                    # Fallback to numpy concatenation
+                    custom_data_embeddings = np.concatenate([custom_data_embeddings, new_embedding], axis=0)
+            
+            print(f"✅ Added custom data: {title} ({category})")
+            return True, "Custom data added successfully"
+        except Exception as e:
+            print(f"❌ Error creating embedding for new custom data: {e}")
+            # Remove the added entry if embedding fails
+            custom_data_texts.pop()
+            custom_data_sources.pop()
+            return False, f"Error creating embedding: {str(e)}"
+    else:
+        print(f"✅ Added custom data (no embedding): {title} ({category})")
+        return True, "Custom data added successfully (embeddings not available)"
+
+# === Remove Custom Data ===
+def remove_custom_data(index):
+    """Remove custom data entry by index"""
+    global custom_data_texts, custom_data_embeddings, custom_data_sources
+    
+    if index < 0 or index >= len(custom_data_texts):
+        return False, "Invalid index"
+    
+    try:
+        # Remove the entry
+        removed_title = custom_data_sources[index]['title']
+        custom_data_texts.pop(index)
+        custom_data_sources.pop(index)
+        
+        # Recreate embeddings if embedder is available
+        if embedder and custom_data_texts:
+            try:
+                custom_data_embeddings = embedder.encode(custom_data_texts, convert_to_tensor=True)
+                print(f"✅ Recreated embeddings after removing custom data")
+            except Exception as e:
+                print(f"❌ Error recreating embeddings: {e}")
+                custom_data_embeddings = np.array([])
+        elif not custom_data_texts:
+            custom_data_embeddings = None
+        
+        print(f"✅ Removed custom data: {removed_title}")
+        return True, f"Removed: {removed_title}"
+    except Exception as e:
+        print(f"❌ Error removing custom data: {e}")
+        return False, f"Error removing data: {str(e)}"
+
 # === Basic Chatbot Functionality ===
 def basic_chatbot_response(user_input):
     """Basic chatbot response using semantic similarity (from basic_chatbot.py)"""
@@ -169,19 +328,45 @@ def basic_chatbot_response(user_input):
         print(f"❌ Error in basic chatbot: {e}")
         return f"Error processing request: {e}", []
 
-# === Semantic Retrieval ===
+# === Enhanced Semantic Retrieval ===
 def retrieve_relevant_chunks(user_input, top_k=3, similarity_threshold=0.1):
-    if scraped_data_embeddings is None or not scraped_data_embeddings.any():
-        print("⚠️ No embeddings available for retrieval")
-        return []
-
     if not embedder:
         print("❌ Sentence transformer not available")
         return []
 
+    all_chunks = []
+    all_embeddings = []
+    all_sources = []
+    
+    # Add scraped data
+    if scraped_data_embeddings is not None and scraped_data_embeddings.any():
+        all_chunks.extend(scraped_data_pages)
+        all_embeddings.append(scraped_data_embeddings)
+        all_sources.extend(['scraped'] * len(scraped_data_pages))
+    
+    # Add custom data
+    if custom_data_embeddings is not None and custom_data_embeddings.any():
+        all_chunks.extend([(f"Custom: {source['title']}", text) for text, source in zip(custom_data_texts, custom_data_sources)])
+        all_embeddings.append(custom_data_embeddings)
+        all_sources.extend(['custom'] * len(custom_data_texts))
+    
+    if not all_chunks:
+        print("⚠️ No data available for retrieval")
+        return []
+
     try:
+        # Concatenate all embeddings
+        if len(all_embeddings) == 1:
+            combined_embeddings = all_embeddings[0]
+        else:
+            if TORCH_AVAILABLE:
+                combined_embeddings = torch.cat(all_embeddings, dim=0)
+            else:
+                # Fallback to numpy concatenation
+                combined_embeddings = np.concatenate(all_embeddings, axis=0)
+        
         query_embedding = embedder.encode(user_input, convert_to_tensor=True)
-        similarities = util.pytorch_cos_sim(query_embedding, scraped_data_embeddings)[0]
+        similarities = util.pytorch_cos_sim(query_embedding, combined_embeddings)[0]
         
         # Debug: Print similarity scores
         print(f"🔍 Query: {user_input}")
@@ -194,19 +379,21 @@ def retrieve_relevant_chunks(user_input, top_k=3, similarity_threshold=0.1):
         for i in top_k_indices:
             similarity_score = similarities[i].item()
             if similarity_score >= similarity_threshold:
-                results.append(scraped_data_pages[i])
-                print(f"✅ Selected chunk {i} with similarity {similarity_score:.3f}")
+                results.append(all_chunks[i])
+                source_type = all_sources[i]
+                print(f"✅ Selected {source_type} chunk {i} with similarity {similarity_score:.3f}")
             else:
                 print(f"⚠️ Chunk {i} similarity {similarity_score:.3f} below threshold {similarity_threshold}")
         
-        print(f"📋 Retrieved {len(results)} relevant chunks out of {len(scraped_data_pages)} total")
+        total_chunks = len(scraped_data_pages) + len(custom_data_texts)
+        print(f"📋 Retrieved {len(results)} relevant chunks out of {total_chunks} total")
         return results
         
     except Exception as e:
         print(f"❌ Error in semantic retrieval: {e}")
         return []
 
-# === Gemini Response ===
+# === Enhanced Gemini Response ===
 def generate_gemini_response(user_input, relevant_chunks):
     if not GOOGLE_API_KEY:
         return "❌ Google API key not configured. Please set your GOOGLE_API_KEY environment variable.", []
@@ -217,9 +404,16 @@ def generate_gemini_response(user_input, relevant_chunks):
         if relevant_chunks:
             context_str = "\n\n--- Context ---\n"
             source_urls = set()
+            
             for i, (url, text) in enumerate(relevant_chunks):
-                context_str += f"Source {i+1} ({url}):\n{text[:1000]}...\n\n"  # Limit text length
-                source_urls.add(url)
+                # Handle both scraped URLs and custom data titles
+                if url.startswith('Custom:'):
+                    context_str += f"Custom Data {i+1} ({url}):\n{text[:1000]}...\n\n"
+                    source_urls.add(url)
+                else:
+                    context_str += f"Source {i+1} ({url}):\n{text[:1000]}...\n\n"
+                    source_urls.add(url)
+            
             context_str += "--- End Context ---"
             print(f"📝 Context length: {len(context_str)} characters")
         else:
@@ -227,8 +421,8 @@ def generate_gemini_response(user_input, relevant_chunks):
             source_urls = set()
             print("⚠️ No relevant chunks found for context")
 
-        # More natural prompt
-        prompt = f"""You are a helpful and knowledgeable assistant. Answer the question naturally and conversationally using the information below.
+        # Enhanced prompt that mentions custom data
+        prompt = f"""You are a helpful and knowledgeable assistant for a company website. Answer the question naturally and conversationally using the information below.
 
 When answering:
 - Be direct and conversational
@@ -236,6 +430,8 @@ When answering:
 - If you find relevant information, share it naturally
 - If the exact information isn't available, mention what you found and be honest about limitations
 - Only say "I don't have that information" if there's truly nothing relevant
+- If you're using custom company data, you can reference it naturally
+- Provide comprehensive answers that combine information from both scraped website data and custom company data when relevant
 
 Information available:
 {context_str}
@@ -265,6 +461,8 @@ Answer:"""
 @app.before_request
 def load_data_once():
     global scraped_data_pages, scraped_data_texts, scraped_data_embeddings
+    global custom_data_texts, custom_data_embeddings, custom_data_sources
+    
     if not scraped_data_pages and embedder:
         print("📄 Loading scraped data...")
         data = load_scraped_data("scraped_data.txt")
@@ -280,6 +478,11 @@ def load_data_once():
         else:
             print("⚠️ No data loaded.")
             scraped_data_embeddings = np.array([])
+    
+    # Load custom data if not already loaded
+    if not custom_data_texts and embedder:
+        print("📄 Loading custom data...")
+        load_custom_data()
 
 # === Routes ===
 @app.route('/')
@@ -399,6 +602,145 @@ def reset_data():
             "message": f"Error resetting data: {str(e)}"
         })
 
+# === Reset All Data Route ===
+@app.route('/reset_all_data', methods=['POST'])
+def reset_all_data():
+    global scraped_data_pages, scraped_data_texts, scraped_data_embeddings, scraping_complete
+    global custom_data_texts, custom_data_embeddings, custom_data_sources
+    
+    try:
+        # Clear all data
+        scraped_data_pages = []
+        scraped_data_texts = []
+        scraped_data_embeddings = None
+        scraping_complete = False
+        
+        custom_data_texts = []
+        custom_data_embeddings = None
+        custom_data_sources = []
+        
+        # Remove custom data file
+        if os.path.exists("custom_data.txt"):
+            os.remove("custom_data.txt")
+        
+        print("🗑️ All data (scraped and custom) has been reset")
+        
+        return jsonify({
+            "status": "success",
+            "message": "All data has been reset"
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "status": "error", 
+            "message": f"Error resetting all data: {str(e)}"
+        })
+
+# === Custom Data Routes ===
+@app.route('/add_custom_data', methods=['POST'])
+def add_custom_data_route():
+    try:
+        data = request.get_json()
+        title = data.get('title', '').strip()
+        category = data.get('category', '').strip()
+        content = data.get('content', '').strip()
+        
+        if not title or not category or not content:
+            return jsonify({
+                "status": "error",
+                "message": "All fields (title, category, content) are required"
+            })
+        
+        success, message = add_custom_data(title, category, content)
+        
+        if success:
+            # Save to file
+            save_custom_data()
+            return jsonify({
+                "status": "success",
+                "message": message,
+                "total_entries": len(custom_data_texts)
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": message
+            })
+            
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"Server error: {str(e)}"
+        })
+
+@app.route('/get_custom_data')
+def get_custom_data_route():
+    try:
+        custom_entries = []
+        for i, (text, source) in enumerate(zip(custom_data_texts, custom_data_sources)):
+            custom_entries.append({
+                'index': i,
+                'title': source['title'],
+                'category': source['category'],
+                'content': text[:200] + "..." if len(text) > 200 else text,
+                'full_content': text
+            })
+        
+        return jsonify({
+            "status": "success",
+            "entries": custom_entries,
+            "total_count": len(custom_entries)
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"Server error: {str(e)}"
+        })
+
+@app.route('/remove_custom_data', methods=['POST'])
+def remove_custom_data_route():
+    try:
+        data = request.get_json()
+        index = data.get('index')
+        
+        if index is None:
+            return jsonify({
+                "status": "error",
+                "message": "Index is required"
+            })
+        
+        success, message = remove_custom_data(index)
+        
+        if success:
+            # Save to file
+            save_custom_data()
+            return jsonify({
+                "status": "success",
+                "message": message,
+                "total_entries": len(custom_data_texts)
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": message
+            })
+            
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"Server error: {str(e)}"
+        })
+
+@app.route('/custom_data_stats')
+def custom_data_stats():
+    return jsonify({
+        "total_custom_entries": len(custom_data_texts),
+        "total_scraped_pages": len(scraped_data_pages),
+        "custom_data_available": len(custom_data_texts) > 0,
+        "scraped_data_available": len(scraped_data_pages) > 0
+    })
+
 # === Health Check Route ===
 @app.route('/health')
 def health_check():
@@ -415,13 +757,16 @@ def health_check():
     }
     return jsonify(status)
 
-# === New Debug Route ===
+# === Enhanced Debug Route ===
 @app.route('/debug')
 def debug_info():
     return jsonify({
-        "total_pages": len(scraped_data_pages),
-        "sample_pages": [{"url": url, "text_preview": text[:200]} for url, text in scraped_data_pages[:3]],
-        "embeddings_shape": scraped_data_embeddings.shape if scraped_data_embeddings is not None else None,
+        "total_scraped_pages": len(scraped_data_pages),
+        "total_custom_entries": len(custom_data_texts),
+        "sample_scraped_pages": [{"url": url, "text_preview": text[:200]} for url, text in scraped_data_pages[:3]],
+        "sample_custom_entries": [{"title": source['title'], "category": source['category'], "text_preview": text[:200]} for text, source in zip(custom_data_texts[:3], custom_data_sources[:3])],
+        "scraped_embeddings_shape": scraped_data_embeddings.shape if scraped_data_embeddings is not None else None,
+        "custom_embeddings_shape": custom_data_embeddings.shape if custom_data_embeddings is not None else None,
         "api_key_configured": bool(GOOGLE_API_KEY),
         "embedder_loaded": bool(embedder),
         "scraping_status": {
@@ -510,6 +855,10 @@ if __name__ == '__main__':
         print("💡 Basic chatbot will still work with scraped data")
     else:
         print("💡 Note: Free tier has 50 requests/day limit. Upgrade plan for more requests.")
+    
+    # Load custom data on startup
+    if embedder:
+        load_custom_data()
     
     # Start scraping automatically in background
     print("🚀 Starting automatic web scraping...")
