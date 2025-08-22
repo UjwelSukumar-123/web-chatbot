@@ -1,222 +1,160 @@
-# 🌐 Integrated Web Chatbot System
+# Integrated Web Chatbot System
 
-A comprehensive web chatbot system that combines deep web scraping, semantic search, and AI-powered responses through a unified Flask web interface.
+A powerful, integrated web chatbot system that combines web scraping with AI-powered responses using Google's Gemini AI and semantic search capabilities.
+
+## 🌟 New Feature: Company-Specific Data Management  
+
+**Enhance your chatbot with custom company information!** This feature allows customers to add their own firm-specific data to make the chatbot more robust and tailored to their business needs.
+
+### What You Can Add:
+- **Company Information**: Mission statements, company history, values
+- **Products & Services**: Detailed descriptions, specifications, pricing
+- **Policies & Procedures**: Company policies, terms of service, guidelines
+- **FAQ**: Frequently asked questions and answers
+- **Contact & Support**: Support information, contact details, hours
+- **Technical Details**: Technical specifications, requirements, documentation
+- **Custom Categories**: Any other business-specific information
+
+### Benefits:
+- **Enhanced Accuracy**: Chatbot provides more accurate, company-specific responses
+- **Better Context**: Combines scraped website data with custom company knowledge
+- **Professional Responses**: Tailored answers that reflect your business
+- **Easy Management**: Simple interface to add, edit, and remove custom data
+- **Persistent Storage**: Custom data is saved and persists between sessions
 
 ## 🚀 Features
 
-- **🕷️ Automatic Web Scraping**: Deep scraping of websites with intelligent content extraction
-- **🤖 Dual Chatbot Interface**: 
-  - **Gemini AI**: Advanced AI responses using Google's Gemini model
-  - **Basic Semantic**: Fast semantic similarity search through scraped content
-- **🌐 Web Interface**: Modern, responsive Flask web application
-- **📊 Real-time Status**: Live scraping status and data loading indicators
-- **🔄 Manual Control**: Start/stop scraping and check system status anytime
+### Core Functionality
+- **Web Scraping**: Automatically crawls and extracts content from target websites
+- **Dual Chatbot Modes**: 
+  - 🤖 **Gemini AI**: Advanced AI-powered responses using Google's Gemini
+  - 🔍 **Basic Semantic**: Fast semantic search-based responses
+- **Real-time Processing**: Live scraping status and data management
+- **Persistent Storage**: Saves scraped and custom data for future use
 
-## 🏗️ System Architecture
+### AI Integration
+- **Google Gemini AI**: State-of-the-art language model for natural conversations
+- **Semantic Search**: Intelligent content retrieval using sentence transformers
+- **Context-Aware Responses**: Combines multiple data sources for comprehensive answers
+- **Source Attribution**: Provides links to source content for transparency
 
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Web Browser  │◄──►│   Flask App     │◄──►│  Deep Scraper   │
-│   (Frontend)   │    │   (Backend)     │    │  (Background)   │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-                                │
-                                ▼
-                       ┌─────────────────┐
-                       │  Data Storage   │
-                       │  & Embeddings   │
-                       └─────────────────┘
-```
-
-## 📋 Prerequisites
-
-- Python 3.7+
-- Google API key (optional, for Gemini AI features)
-- Internet connection for web scraping
+### Data Management
+- **Custom Data Addition**: Add company-specific information through web interface
+- **Data Categorization**: Organize custom data with predefined categories
+- **Data Persistence**: Automatic saving and loading of custom data
+- **Data Reset Options**: Reset scraped data, custom data, or both
 
 ## 🛠️ Installation
 
-1. **Clone or download the project files**
-2. **Install required packages**:
+### Prerequisites
+- Python 3.7+
+- Google AI Studio API key (for Gemini AI features)
+
+### Setup
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd web-chatbot
+   ```
+
+2. **Install dependencies**
    ```bash
    pip install -r requirements.txt
    ```
 
-3. **Set up Google API key** (optional):
+3. **Configure API key**
    - Create a `.env` file in the project root
-   - Add your Google API key:
+   - Add your Google AI Studio API key:
      ```
      GOOGLE_API_KEY=your_api_key_here
      ```
 
-## 🚀 Quick Start
+4. **Run the application**
+   ```bash
+   python app.py
+   ```
 
-### Option 1: Use the Launcher Script (Recommended)
-```bash
-python run_system.py
-```
+## 📖 Usage
 
-### Option 2: Run Directly
-```bash
-python app.py
-```
+### Getting Started
+1. **Launch the application** - The system will automatically start scraping the default website
+2. **Add custom company data** - Use the "Company-Specific Data Management" section
+3. **Start chatting** - Ask questions about the website content and your custom data
 
-### Option 3: Run Individual Components
-```bash
-# Run scraper only
-python deep_scraper.py
+### Adding Custom Data
+1. Click **"📝 Manage Data"** in the Company-Specific Data Management section
+2. Fill in the form:
+   - **Title**: Descriptive name for the information
+   - **Category**: Choose from predefined categories
+   - **Content**: Detailed information about the topic
+3. Click **"Add Data"** to save
+4. The chatbot will now use this information in responses
 
-# Run basic chatbot only
-python basic_chatbot.py
+### Managing Data
+- **View**: Click the 👁️ button to see full content
+- **Remove**: Click the 🗑️ button to delete entries
+- **Reset**: Use reset buttons to clear data as needed
 
-# Run Flask app only
-python app.py
-```
-
-## 🌐 Using the Web Interface
-
-1. **Open your browser** and go to `http://localhost:5000`
-2. **Choose your chatbot**:
-   - 🤖 **Gemini AI**: Advanced AI responses (requires API key)
-   - 🔍 **Basic Semantic**: Fast semantic search through scraped data
-3. **Ask questions** about the scraped website content
-4. **Monitor scraping status** in real-time
-5. **Manually trigger scraping** when needed
+### Chatbot Modes
+- **Gemini AI**: Best for complex questions and natural conversations
+- **Basic Semantic**: Faster responses for simple queries
 
 ## 🔧 Configuration
 
-### Website to Scrape
-Edit `app.py` line 95 to change the target website:
-```python
-website = "https://your-website.com"  # Change this URL
-```
+### Target Website
+- Change the target website using the URL input field
+- Click "Update" to apply changes
+- Data will be automatically reset when changing websites
 
-### Scraping Limits
-Modify `max_pages` parameter in `app.py` line 97:
-```python
-general_scraped_data, structured_scraped_data = crawl_website(website, max_pages=100)
-```
+### Data Management
+- **Reset Scraped**: Clears only website-scraped data
+- **Reset All**: Clears both scraped and custom data
+- Custom data is automatically saved to `custom_data.txt`
 
-### API Settings
-- **Gemini Model**: Change in `app.py` line 25
-- **Embedding Model**: Modify in `app.py` line 35
+## 📊 System Status
 
-## 📁 File Structure
+The application provides real-time status information:
+- **Scraping Status**: Current scraping progress and completion
+- **Data Counts**: Number of scraped pages and custom entries
+- **API Status**: Google API key configuration status
+- **Embedding Status**: AI model loading status
 
-```
-web-chatbot/
-├── app.py                 # Main Flask application (integrated)
-├── deep_scraper.py       # Web scraping functionality
-├── basic_chatbot.py      # Basic semantic chatbot
-├── run_system.py         # System launcher script
-├── requirements.txt      # Python dependencies
-├── .env                  # Environment variables (create this)
-├── templates/
-│   └── index.html       # Web interface template
-├── scraped_data.txt     # Generated scraped content
-└── structured_data.txt   # Generated structured data
-```
-
-## 🔍 How It Works
-
-### 1. Web Scraping Process
-- **Automatic**: Starts when the Flask app launches
-- **Intelligent**: Follows internal links and extracts relevant content
-- **Structured**: Saves both general content and specific data (contacts, jobs)
-- **Efficient**: Uses threading to avoid blocking the web interface
-
-### 2. Data Processing
-- **Content Extraction**: Removes scripts, styles, and navigation elements
-- **Text Cleaning**: Normalizes and cleans extracted text
-- **Embedding Generation**: Creates semantic embeddings for fast search
-
-### 3. Chatbot Responses
-- **Gemini AI**: Uses scraped content as context for AI-generated responses
-- **Basic Semantic**: Finds most similar content using cosine similarity
-- **Source Attribution**: Always provides source URLs for transparency
-
-## 🎯 Use Cases
-
-- **Company Research**: Scrape company websites for information
-- **Content Analysis**: Extract and analyze website content
-- **Customer Support**: Build knowledge bases from website content
-- **Competitive Intelligence**: Monitor competitor websites
-- **Data Mining**: Extract structured data from web pages
-
-## 🚨 Important Notes
-
-- **Rate Limiting**: Built-in delays to be respectful to websites
-- **Content Types**: Only scrapes HTML content (skips PDFs, images, etc.)
-- **Legal Compliance**: Ensure you have permission to scrape target websites
-- **API Limits**: Google Gemini has daily request limits (50 for free tier)
-
-## 🐛 Troubleshooting
+## 🚨 Troubleshooting
 
 ### Common Issues
+1. **API Key Errors**: Ensure your Google AI Studio API key is valid and has sufficient quota
+2. **Scraping Failures**: Check website accessibility and internet connection
+3. **Memory Issues**: Large websites may require more memory for processing
+4. **Embedding Errors**: Ensure sentence-transformers is properly installed
 
-1. **Import Errors**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+### Performance Tips
+- Use the Basic Semantic mode for faster responses
+- Limit custom data entries to essential information
+- Monitor API usage to avoid quota limits
 
-2. **API Key Issues**:
-   - Check `.env` file exists and contains `GOOGLE_API_KEY=...`
-   - Verify API key is valid and has sufficient quota
+## 🔒 Security Notes
 
-3. **Scraping Fails**:
-   - Check internet connection
-   - Verify target website is accessible
-   - Check if website blocks scraping
+- API keys are stored in environment variables
+- Custom data is stored locally in plain text
+- No external data transmission beyond Google AI API calls
+- Consider data sensitivity when adding custom information
 
-4. **Memory Issues**:
-   - Reduce `max_pages` in scraping configuration
-   - Close other applications to free memory
+## 📈 Future Enhancements
 
-### Debug Routes
-
-The system provides several debug endpoints:
-- `/health` - System health check
-- `/debug` - Detailed system information
-- `/scraping_status` - Current scraping status
-- `/test_query` - Test semantic retrieval
-
-## 🔄 API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/` | GET | Main web interface |
-| `/ask` | POST | Send question to chatbot |
-| `/scraping_status` | GET | Get scraping status |
-| `/start_scraping` | POST | Manually start scraping |
-| `/health` | GET | System health check |
-| `/debug` | GET | Debug information |
+- **Data Import/Export**: CSV/JSON import/export functionality
+- **Advanced Categorization**: Custom category creation
+- **Data Analytics**: Usage statistics and performance metrics
+- **Multi-language Support**: Internationalization features
+- **API Endpoints**: RESTful API for external integrations
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
+Contributions are welcome! Please feel free to submit pull requests or open issues for bugs and feature requests.
 
 ## 📄 License
 
-This project is open source. Please ensure compliance with target website terms of service when scraping.
+This project is licensed under the MIT License - see the LICENSE file for details.
 
-## 🆘 Support
+---
 
-For issues or questions:
-1. Check the troubleshooting section
-2. Review the debug endpoints
-3. Check console output for error messages
-4. Verify all dependencies are installed
-
-## 🎉 What's Next?
-
-The system is designed to be extensible. Consider adding:
-- Database storage for scraped data
-- Scheduled scraping
-- Multiple website support
-- Advanced content filtering
-- Export functionality
-- User authentication
-- API rate limiting
+**Transform your website chatbot into a comprehensive business assistant with company-specific knowledge!** 🚀
