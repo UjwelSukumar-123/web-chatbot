@@ -13,7 +13,7 @@ try:
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
-    print("⚠️ PyTorch not available, using numpy fallback for tensor operations")
+    print("PyTorch not available, using numpy fallback for tensor operations")
 
 # Import scraper functionality
 from deep_scraper import crawl_website
@@ -22,23 +22,79 @@ load_dotenv()
 
 # === API Key Setup ===
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+GEMINI_MODEL_NAME = None  # Will be set to a working model name
+
+def find_working_model():
+    """Find a working Gemini model by listing available models"""
+    global GEMINI_MODEL_NAME
+    
+    if not GOOGLE_API_KEY:
+        return None
+    
+    try:
+        # List available models
+        models = genai.list_models()
+        available_models = []
+        
+        for m in models:
+            if 'generateContent' in m.supported_generation_methods:
+                # Extract model name (e.g., "models/gemini-pro" -> "gemini-pro")
+                model_name = m.name.split('/')[-1] if '/' in m.name else m.name
+                available_models.append(model_name)
+        
+        print(f"Found {len(available_models)} available models")
+        if available_models:
+            print(f"Available models: {', '.join(available_models[:10])}")
+        
+        # Try models in order of preference
+        preferred_models = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro', 'gemini-2.0-flash-exp']
+        
+        for model_name in preferred_models:
+            if model_name in available_models:
+                try:
+                    # Test if this model actually works
+                    model = genai.GenerativeModel(model_name)
+                    response = model.generate_content("Hi")
+                    GEMINI_MODEL_NAME = model_name
+                    print(f"Using model: {model_name}")
+                    return model_name
+                except Exception as e:
+                    print(f"Model {model_name} failed: {str(e)[:100]}")
+                    continue
+        
+        # If preferred models don't work, try the first available one
+        if available_models:
+            for model_name in available_models:
+                try:
+                    model = genai.GenerativeModel(model_name)
+                    response = model.generate_content("Hi")
+                    GEMINI_MODEL_NAME = model_name
+                    print(f"Using first available model: {model_name}")
+                    return model_name
+                except Exception as e:
+                    continue
+        
+        print("No working models found")
+        return None
+        
+    except Exception as e:
+        print(f"Error finding working model: {e}")
+        return None
+
 if GOOGLE_API_KEY:
     genai.configure(api_key=GOOGLE_API_KEY)
     print("✅ Google API key loaded from .env file")
     print(f"🔑 API Key (first 10 chars): {GOOGLE_API_KEY[:10]}...")
     
-    # Test the API key to get project info
-    try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        # Make a minimal test request
-        response = model.generate_content("Hi")
-        print("✅ API key test successful - should be Tier 1")
-    except Exception as e:
-        print(f"⚠️ API key test failed: {e}")
-        if "quota" in str(e).lower():
-            print("🔍 This suggests the key is still in free tier mode")
+    # Find a working model
+    find_working_model()
+    
+    if GEMINI_MODEL_NAME:
+        print(f"API key configured - using model: {GEMINI_MODEL_NAME}")
+    else:
+        print("Could not find a working model. Gemini features may not work.")
 else:
-    print("❌ GOOGLE_API_KEY not found in .env file")
+    print("GOOGLE_API_KEY not found in .env file")
 
 # === Flask App ===
 app = Flask(__name__)
@@ -48,7 +104,7 @@ try:
     embedder = SentenceTransformer('all-MiniLM-L6-v2')
     print("✅ Sentence transformer model loaded successfully")
 except Exception as e:
-    print(f"❌ Error loading sentence transformer: {e}")
+    print(f"Error loading sentence transformer: {e}")
     embedder = None
 
 # === Data Store ===
@@ -57,7 +113,7 @@ scraped_data_texts = []
 scraped_data_embeddings = None
 scraping_in_progress = False
 scraping_complete = False
-# target_website = "https://inciem.com"  # Default website
+# target_website = "https://inciem.com/"  # Default website
 
 # === Custom Data Store ===
 custom_data_texts = []
@@ -69,12 +125,12 @@ def run_scraper():
     global scraped_data_pages, scraped_data_texts, scraped_data_embeddings, scraping_in_progress, scraping_complete
     
     scraping_in_progress = True
-    print("🕷️ Starting web scraping...")
+    print("Starting web scraping...")
     
     try:
         # Run the scraper using the target website
         website = target_website
-        print(f"🎯 Scraping website: {website}")
+        print(f"Scraping website: {website}")
         
         general_scraped_data, structured_scraped_data = crawl_website(website, max_pages=50)
         
@@ -84,7 +140,7 @@ def run_scraper():
             for url, content in general_scraped_data.items():
                 f.write(f"--- {url} ---\n")
                 f.write(content + "\n\n")
-        print(f"💾 General scraped data saved to {output_general_file}")
+        print(f"General scraped data saved to {output_general_file}")
         
         # Save structured data
         output_structured_file = "structured_data.txt"
@@ -103,16 +159,16 @@ def run_scraper():
                 for job in entry['data']:
                     f.write(f"    - {job}\n")
                 f.write("\n")
-        print(f"💾 Structured data saved to {output_structured_file}")
+        print(f"Structured data saved to {output_structured_file}")
         
         # Load the newly scraped data
         load_scraped_data("scraped_data.txt")
         
         scraping_complete = True
-        print("✅ Web scraping completed successfully!")
+        print("Web scraping completed successfully!")
         
     except Exception as e:
-        print(f"❌ Error during scraping: {e}")
+        print(f"Error during scraping: {e}")
         scraping_complete = False
     finally:
         scraping_in_progress = False
@@ -150,14 +206,14 @@ def load_scraped_data(file_path):
         if embedder and scraped_data_texts:
             try:
                 scraped_data_embeddings = embedder.encode(scraped_data_texts, convert_to_tensor=True)
-                print(f"✅ Created embeddings for {len(scraped_data_pages)} pages.")
+                print(f"Created embeddings for {len(scraped_data_pages)} pages.")
             except Exception as e:
-                print(f"❌ Error creating embeddings: {e}")
+                print(f"Error creating embeddings: {e}")
                 scraped_data_embeddings = np.array([])
         
         return url_text_pairs
     except Exception as e:
-        print(f"❌ Error loading scraped data: {e}")
+        print(f"Error loading scraped data: {e}")
         return []
 
 # === Load Custom Data ===
@@ -202,14 +258,14 @@ def load_custom_data():
         if embedder and custom_data_texts:
             try:
                 custom_data_embeddings = embedder.encode(custom_data_texts, convert_to_tensor=True)
-                print(f"✅ Created embeddings for {len(custom_data_texts)} custom data entries.")
+                print(f"Created embeddings for {len(custom_data_texts)} custom data entries.")
             except Exception as e:
-                print(f"❌ Error creating custom data embeddings: {e}")
+                print(f"Error creating custom data embeddings: {e}")
                 custom_data_embeddings = np.array([])
         
         return custom_data_texts
     except Exception as e:
-        print(f"❌ Error loading custom data: {e}")
+        print(f"Error loading custom data: {e}")
         return []
 
 # === Save Custom Data ===
@@ -225,10 +281,10 @@ def save_custom_data():
                 if i < len(custom_data_texts) - 1:
                     f.write("--- CUSTOM ENTRY ---\n")
         
-        print(f"✅ Custom data saved to {custom_data_file}")
+        print(f"Custom data saved to {custom_data_file}")
         return True
     except Exception as e:
-        print(f"❌ Error saving custom data: {e}")
+        print(f"Error saving custom data: {e}")
         return False
 
 # === Add Custom Data ===
@@ -263,16 +319,16 @@ def add_custom_data(title, category, content):
                     # Fallback to numpy concatenation
                     custom_data_embeddings = np.concatenate([custom_data_embeddings, new_embedding], axis=0)
             
-            print(f"✅ Added custom data: {title} ({category})")
+            print(f"Added custom data: {title} ({category})")
             return True, "Custom data added successfully"
         except Exception as e:
-            print(f"❌ Error creating embedding for new custom data: {e}")
+            print(f"Error creating embedding for new custom data: {e}")
             # Remove the added entry if embedding fails
             custom_data_texts.pop()
             custom_data_sources.pop()
             return False, f"Error creating embedding: {str(e)}"
     else:
-        print(f"✅ Added custom data (no embedding): {title} ({category})")
+        print(f"Added custom data (no embedding): {title} ({category})")
         return True, "Custom data added successfully (embeddings not available)"
 
 # === Remove Custom Data ===
@@ -295,15 +351,15 @@ def remove_custom_data(index):
                 custom_data_embeddings = embedder.encode(custom_data_texts, convert_to_tensor=True)
                 print(f"✅ Recreated embeddings after removing custom data")
             except Exception as e:
-                print(f"❌ Error recreating embeddings: {e}")
+                print(f"Error recreating embeddings: {e}")
                 custom_data_embeddings = np.array([])
         elif not custom_data_texts:
             custom_data_embeddings = None
         
-        print(f"✅ Removed custom data: {removed_title}")
+        print(f"Removed custom data: {removed_title}")
         return True, f"Removed: {removed_title}"
     except Exception as e:
-        print(f"❌ Error removing custom data: {e}")
+        print(f"Error removing custom data: {e}")
         return False, f"Error removing data: {str(e)}"
 
 # === Basic Chatbot Functionality ===
@@ -325,13 +381,13 @@ def basic_chatbot_response(user_input):
         return short_snippet, [best_url]
         
     except Exception as e:
-        print(f"❌ Error in basic chatbot: {e}")
+        print(f"Error in basic chatbot: {e}")
         return f"Error processing request: {e}", []
 
 # === Enhanced Semantic Retrieval ===
-def retrieve_relevant_chunks(user_input, top_k=3, similarity_threshold=0.1):
+def retrieve_relevant_chunks(user_input, top_k=3, similarity_threshold=0.0):
     if not embedder:
-        print("❌ Sentence transformer not available")
+        print("Sentence transformer not available")
         return []
 
     all_chunks = []
@@ -369,37 +425,42 @@ def retrieve_relevant_chunks(user_input, top_k=3, similarity_threshold=0.1):
         similarities = util.pytorch_cos_sim(query_embedding, combined_embeddings)[0]
         
         # Debug: Print similarity scores
-        print(f"🔍 Query: {user_input}")
-        print(f"📊 Top similarity scores: {similarities.topk(min(5, len(similarities))).values.tolist()}")
+        print(f"Query: {user_input}")
+        top_scores = similarities.topk(min(5, len(similarities))).values.tolist()
+        print(f"Top similarity scores: {top_scores}")
         
-        # Get top k results above threshold
+        # Get top k results - always return top-k even if below threshold
+        # This ensures we always have context to work with
         top_k_indices = similarities.argsort(descending=True)[:top_k]
         results = []
         
         for i in top_k_indices:
             similarity_score = similarities[i].item()
+            results.append(all_chunks[i])
+            source_type = all_sources[i]
             if similarity_score >= similarity_threshold:
-                results.append(all_chunks[i])
-                source_type = all_sources[i]
-                print(f"✅ Selected {source_type} chunk {i} with similarity {similarity_score:.3f}")
+                print(f"Selected {source_type} chunk {i} with similarity {similarity_score:.3f}")
             else:
-                print(f"⚠️ Chunk {i} similarity {similarity_score:.3f} below threshold {similarity_threshold}")
+                print(f"Selected {source_type} chunk {i} with similarity {similarity_score:.3f} (below threshold {similarity_threshold}, but included as top-k)")
         
         total_chunks = len(scraped_data_pages) + len(custom_data_texts)
-        print(f"📋 Retrieved {len(results)} relevant chunks out of {total_chunks} total")
+        print(f"Retrieved {len(results)} relevant chunks out of {total_chunks} total")
         return results
         
     except Exception as e:
-        print(f"❌ Error in semantic retrieval: {e}")
+        print(f"Error in semantic retrieval: {e}")
         return []
 
 # === Enhanced Gemini Response ===
 def generate_gemini_response(user_input, relevant_chunks):
     if not GOOGLE_API_KEY:
-        return "❌ Google API key not configured. Please set your GOOGLE_API_KEY environment variable.", []
+        return "Google API key not configured. Please set your GOOGLE_API_KEY environment variable.", []
+    
+    if not GEMINI_MODEL_NAME:
+        return "No working Gemini model found. Please check your API key configuration.", []
 
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel(GEMINI_MODEL_NAME)
         
         if relevant_chunks:
             context_str = "\n\n--- Context ---\n"
@@ -415,7 +476,7 @@ def generate_gemini_response(user_input, relevant_chunks):
                     source_urls.add(url)
             
             context_str += "--- End Context ---"
-            print(f"📝 Context length: {len(context_str)} characters")
+            print(f"Context length: {len(context_str)} characters")
         else:
             context_str = "No relevant content found."
             source_urls = set()
@@ -446,16 +507,16 @@ Answer:"""
         return answer, list(source_urls)
         
     except Exception as e:
-        print(f"❌ Gemini error: {e}")
+        print(f"Gemini error: {e}")
         error_msg = str(e)
         if "API_KEY_INVALID" in error_msg:
-            return "❌ Invalid API key. Please check your Google API key configuration.", []
+            return "Invalid API key. Please check your Google API key configuration.", []
         elif "PERMISSION_DENIED" in error_msg:
-            return "❌ Permission denied. Please check your API key permissions.", []
+            return "Permission denied. Please check your API key permissions.", []
         elif "429" in error_msg and "quota" in error_msg.lower():
-            return "❌ API quota exceeded. You've hit the free tier limit (50 requests/day). Please upgrade your plan or wait until tomorrow.", []
+            return "API quota exceeded. You've hit the free tier limit (50 requests/day). Please upgrade your plan or wait until tomorrow.", []
         else:
-            return f"❌ Error generating response: {error_msg}", []
+            return f" Error generating response: {error_msg}", []
 
 # === Load Once ===
 @app.before_request
@@ -471,17 +532,17 @@ def load_data_once():
             scraped_data_texts = [text for _, text in data]
             try:
                 scraped_data_embeddings = embedder.encode(scraped_data_texts, convert_to_tensor=True)
-                print(f"✅ Loaded {len(scraped_data_pages)} pages with embeddings.")
+                print(f"Loaded {len(scraped_data_pages)} pages with embeddings.")
             except Exception as e:
-                print(f"❌ Error creating embeddings: {e}")
+                print(f"Error creating embeddings: {e}")
                 scraped_data_embeddings = np.array([])
         else:
-            print("⚠️ No data loaded.")
+            print("No data loaded.")
             scraped_data_embeddings = np.array([])
     
     # Load custom data if not already loaded
     if not custom_data_texts and embedder:
-        print("📄 Loading custom data...")
+        print("Loading custom data...")
         load_custom_data()
 
 # === Routes ===
@@ -500,7 +561,7 @@ def ask():
 
         if not embedder:
             return jsonify({
-                "answer": "❌ Sentence transformer model not available. Please check your installation.",
+                "answer": "Sentence transformer model not available. Please check your installation.",
                 "source_urls": []
             })
 
@@ -509,14 +570,14 @@ def ask():
             answer, urls = basic_chatbot_response(question)
         else:
             # Use Gemini chatbot
-            relevant_chunks = retrieve_relevant_chunks(question)
+            relevant_chunks = retrieve_relevant_chunks(question, top_k=5, similarity_threshold=0.0)
             answer, urls = generate_gemini_response(question, relevant_chunks)
 
         return jsonify({"answer": answer, "source_urls": urls})
 
     except Exception as e:
-        print(f"❌ Server error: {e}")
-        return jsonify({"answer": f"⚠️ Internal server error: {e}", "source_urls": []})
+        print(f"Server error: {e}")
+        return jsonify({"answer": f"Internal server error: {e}", "source_urls": []})
 
 # === Scraping Status Route ===
 @app.route('/scraping_status')
@@ -558,7 +619,7 @@ def set_website():
             new_website = 'https://' + new_website
         
         target_website = new_website
-        print(f"🎯 Target website updated to: {target_website}")
+        print(f"Target website updated to: {target_website}")
         
         return jsonify({
             "status": "success", 
@@ -802,8 +863,11 @@ def test_api_key():
     if not GOOGLE_API_KEY:
         return jsonify({"error": "No API key configured"})
     
+    if not GEMINI_MODEL_NAME:
+        return jsonify({"error": "No working model found"})
+    
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel(GEMINI_MODEL_NAME)
         response = model.generate_content("Hello, this is a test.")
         return jsonify({
             "status": "success",
@@ -861,10 +925,10 @@ if __name__ == '__main__':
         load_custom_data()
     
     # Start scraping automatically in background
-    print("🚀 Starting automatic web scraping...")
+    print("Starting automatic web scraping...")
     scraping_thread = threading.Thread(target=run_scraper)
     scraping_thread.daemon = True
     scraping_thread.start()
     
-    print("🌐 Starting Flask web server...")
+    print("Starting Flask web server...")
     app.run(debug=True)
