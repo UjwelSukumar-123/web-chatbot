@@ -6,7 +6,7 @@ Integrated Web Chatbot System Launcher
 This script launches the complete integrated system that includes:
 1. Deep web scraping (deep_scraper.py functionality)
 2. Basic semantic chatbot (basic_chatbot.py functionality) 
-3. Gemini AI chatbot
+3. OpenAI chatbot
 4. Flask web interface
 
 Usage:
@@ -27,9 +27,10 @@ from pathlib import Path
 def check_dependencies():
     """Check if all required packages are installed"""
     required_packages = [
-        'flask',
+        'fastapi',
+        'uvicorn',
         'sentence_transformers', 
-        'google-generativeai',
+        'openai',
         'beautifulsoup4',
         'requests',
         'python-dotenv'
@@ -81,20 +82,20 @@ def check_env_file():
     env_file = Path('.env')
     if not env_file.exists():
         print("⚠️  .env file not found")
-        print("💡 Create a .env file with your Google API key:")
-        print("   GOOGLE_API_KEY=your_api_key_here")
-        print("   Note: The system will work without it, but Gemini responses won't be available")
+        print("💡 Create a .env file with your OpenAI API key:")
+        print("   OPENAI_API_KEY=your_api_key_here")
+        print("   Note: The system will work without it, but OpenAI responses won't be available")
         return False
     
     # Check if API key is in .env file
     try:
         with open(env_file, 'r') as f:
             content = f.read()
-            if 'GOOGLE_API_KEY=' in content:
+            if 'OPENAI_API_KEY=' in content:
                 print("✅ .env file found with API key")
                 return True
             else:
-                print("⚠️  .env file found but no GOOGLE_API_KEY detected")
+                print("⚠️  .env file found but no OPENAI_API_KEY detected")
                 return False
     except Exception as e:
         print(f"⚠️  Error reading .env file: {e}")
@@ -118,7 +119,7 @@ def main():
     print("\n🎯 System ready to launch!")
     print("\n📋 What will happen:")
     print("   1. 🕷️  Automatic web scraping will start in background")
-    print("   2. 🌐 Flask web server will start")
+    print("   2. 🌐 FastAPI web server will start")
     print("   3. 💬 Both chatbot interfaces will be available")
     print("   4. 🔄 You can manually trigger scraping anytime")
     
@@ -129,19 +130,20 @@ def main():
     
     print("\n🚀 Launching integrated system...")
     
-    # Import and run the Flask app
+    # Import and run the FastAPI app
     try:
+        import uvicorn
         from app import app
-        print("✅ Successfully imported Flask app")
+        print("✅ Successfully imported FastAPI app")
         print("🌐 Starting web server...")
         print("📱 Open your browser to: http://localhost:5000")
         print("⏹️  Press Ctrl+C to stop the system")
         
-        app.run(debug=True, host='0.0.0.0', port=5000)
+        uvicorn.run(app, host='0.0.0.0', port=5000, log_level="info")
         
     except ImportError as e:
-        print(f"❌ Error importing Flask app: {e}")
-        print("💡 Make sure app.py is in the current directory")
+        print(f"❌ Error importing FastAPI app: {e}")
+        print("💡 Make sure app.py is in the current directory and fastapi/uvicorn are installed")
         sys.exit(1)
     except Exception as e:
         print(f"❌ Error starting system: {e}")

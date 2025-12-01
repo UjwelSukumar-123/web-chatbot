@@ -1,6 +1,6 @@
 # Integrated Web Chatbot System
 
-A powerful, integrated web chatbot system that combines web scraping with AI-powered responses using Google's Gemini AI and semantic search capabilities.
+A powerful, integrated web chatbot system that combines web scraping with AI-powered responses using OpenAI and semantic search capabilities.
 
 ## 🌟 New Feature: Company-Specific Data Management  
 
@@ -27,13 +27,13 @@ A powerful, integrated web chatbot system that combines web scraping with AI-pow
 ### Core Functionality
 - **Web Scraping**: Automatically crawls and extracts content from target websites
 - **Dual Chatbot Modes**: 
-  - 🤖 **Gemini AI**: Advanced AI-powered responses using Google's Gemini
+  - 🤖 **OpenAI**: Advanced AI-powered responses using OpenAI
   - 🔍 **Basic Semantic**: Fast semantic search-based responses
 - **Real-time Processing**: Live scraping status and data management
 - **Persistent Storage**: Saves scraped and custom data for future use
 
 ### AI Integration
-- **Google Gemini AI**: State-of-the-art language model for natural conversations
+- **OpenAI**: State-of-the-art language model for natural conversations
 - **Semantic Search**: Intelligent content retrieval using sentence transformers
 - **Context-Aware Responses**: Combines multiple data sources for comprehensive answers
 - **Source Attribution**: Provides links to source content for transparency
@@ -48,7 +48,7 @@ A powerful, integrated web chatbot system that combines web scraping with AI-pow
 
 ### Prerequisites
 - Python 3.7+
-- Google AI Studio API key (for Gemini AI features)
+- OpenAI API key (for OpenAI features)
 
 ### Setup
 1. **Clone the repository**
@@ -64,10 +64,12 @@ A powerful, integrated web chatbot system that combines web scraping with AI-pow
 
 3. **Configure API key**
    - Create a `.env` file in the project root
-   - Add your Google AI Studio API key:
+   - Add your OpenAI API key:
      ```
-     GOOGLE_API_KEY=your_api_key_here
+     OPENAI_API_KEY=your_api_key_here
+     OPENAI_MODEL_NAME=gpt-3.5-turbo
      ```
+     Note: You can use `gpt-4` or other models by changing `OPENAI_MODEL_NAME`
 
 4. **Run the application**
    ```bash
@@ -96,7 +98,7 @@ A powerful, integrated web chatbot system that combines web scraping with AI-pow
 - **Reset**: Use reset buttons to clear data as needed
 
 ### Chatbot Modes
-- **Gemini AI**: Best for complex questions and natural conversations
+- **OpenAI**: Best for complex questions and natural conversations
 - **Basic Semantic**: Faster responses for simple queries
 
 ## 🔧 Configuration
@@ -116,13 +118,13 @@ A powerful, integrated web chatbot system that combines web scraping with AI-pow
 The application provides real-time status information:
 - **Scraping Status**: Current scraping progress and completion
 - **Data Counts**: Number of scraped pages and custom entries
-- **API Status**: Google API key configuration status
+- **API Status**: OpenAI API key configuration status
 - **Embedding Status**: AI model loading status
 
 ## 🚨 Troubleshooting
 
 ### Common Issues
-1. **API Key Errors**: Ensure your Google AI Studio API key is valid and has sufficient quota
+1. **API Key Errors**: Ensure your OpenAI API key is valid and has sufficient quota
 2. **Scraping Failures**: Check website accessibility and internet connection
 3. **Memory Issues**: Large websites may require more memory for processing
 4. **Embedding Errors**: Ensure sentence-transformers is properly installed
@@ -136,7 +138,7 @@ The application provides real-time status information:
 
 - API keys are stored in environment variables
 - Custom data is stored locally in plain text
-- No external data transmission beyond Google AI API calls
+- No external data transmission beyond OpenAI API calls
 - Consider data sensitivity when adding custom information
 
 ## 📈 Future Enhancements

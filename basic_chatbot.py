@@ -48,9 +48,9 @@ def find_best_response(user_input, pages, text_embeddings):
     return short_snippet, best_url
 
 def main():
-    print("🔎 Loading scraped data...")
+    print("Loading scraped data...")
     data = load_scraped_data("scraped_data.txt")
-    print(f"✅ Loaded {len(data)} pages.")
+    print(f"Loaded {len(data)} pages.")
 
     pages = [(url, text) for url, text in data]
     texts = [text for _, text in pages]
@@ -58,7 +58,7 @@ def main():
     print("🔄 Computing embeddings (this might take a few seconds)...")
     text_embeddings = compute_embeddings(texts)
 
-    print("\n💬 Chatbot is ready! Type your question (or 'exit' to quit):\n")
+    print("\n Chatbot is ready! Type your question (or 'exit' to quit):\n")
     while True:
         question = input("You: ")
         if question.lower() in ["exit", "quit"]:
@@ -66,7 +66,7 @@ def main():
             break
 
         response, source_url = find_best_response(question, pages, text_embeddings)
-        print(f"\n🤖 Answer (from {source_url}):\n{response}\n")
+        print(f"\n Answer (from {source_url}):\n{response}\n")
 
 if __name__ == "__main__":
     main()

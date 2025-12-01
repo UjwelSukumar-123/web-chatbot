@@ -182,22 +182,82 @@
         }
 
         .source-links {
-            font-size: 0.8em;
-            margin-top: 5px;
+            font-size: 0.85em;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(0,0,0,0.1);
             color: #666;
             display: block;
+            line-height: 1.8;
         }
         
-        .source-links a {
+        .source-links a, .source-link {
             color: #2575fc;
             text-decoration: none;
-            font-weight: bold;
-            margin-right: 8px;
+            font-weight: 600;
+            margin-right: 6px;
             display: inline-block;
         }
         
-        .source-links a:hover {
+        .source-links a:hover, .source-link:hover {
             text-decoration: underline;
+            color: #1a5fc7;
+        }
+        
+        .source-entry {
+            margin: 6px 0;
+            padding: 4px 0;
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+        
+        .source-number {
+            font-weight: bold;
+            color: #555;
+            margin-right: 4px;
+        }
+        
+        .source-title {
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .source-category {
+            color: #888;
+            font-size: 0.9em;
+            font-style: italic;
+        }
+        
+        .source-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75em;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .source-badge.custom-badge {
+            background-color: #e3f2fd;
+            color: #1976d2;
+        }
+        
+        .source-badge.scraped-badge {
+            background-color: #f3e5f5;
+            color: #7b1fa2;
+        }
+        
+        .similarity-score {
+            display: inline-block;
+            padding: 2px 6px;
+            background-color: #e8f5e9;
+            color: #2e7d32;
+            border-radius: 10px;
+            font-size: 0.75em;
+            font-weight: 600;
+            margin-left: 4px;
         }
 
         .chat-input-area {
@@ -645,7 +705,7 @@
             <div class="chatbot-selector">
                 <label for="chatbot-type">Chatbot:</label>
                 <select id="chatbot-type">
-                    <option value="gemini">🤖 Gemini AI</option>
+                    <option value="openai">🤖 OpenAI</option>
                     <option value="basic">🔍 Basic Semantic</option>
                 </select>
             </div>
@@ -713,7 +773,7 @@
         <div class="chat-box" id="chat-box">
             <div class="message bot">
                 <div class="message-bubble bot">
-                    Hello! I'm your integrated web chatbot. I can use either Gemini AI or basic semantic search to answer your questions about the scraped website data. Current target: <strong id="welcome-website">https://inciem.com</strong><br><br>Please start scraping to begin gathering data from this website.
+                    Hello! I'm your integrated web chatbot. I can use either OpenAI or basic semantic search to answer your questions about the scraped website data. Current target: <strong id="welcome-website">https://inciem.com</strong><br><br>Please start scraping to begin gathering data from this website.
                 </div>
             </div>
         </div>
@@ -725,7 +785,7 @@
     </div>
 
     <script>
-        let currentChatbotType = 'gemini';
+        let currentChatbotType = 'openai';
         let scrapingSuccessShown = false;
         
         // Initialize status on page load
@@ -958,7 +1018,7 @@
                     // Clear chat box to indicate fresh start
                     const chatBox = document.getElementById('chat-box');
                     const currentWebsite = document.getElementById('website-url').value;
-                    chatBox.innerHTML = `<div class="message bot"><div class="message-bubble bot">Hello! I'm your integrated web chatbot. I can use either Gemini AI or basic semantic search to answer your questions about the scraped website data. Current target: <strong>${currentWebsite}</strong><br><br>Please start scraping to begin gathering data from this website.</div></div>`;
+                    chatBox.innerHTML = `<div class="message bot"><div class="message-bubble bot">Hello! I'm your integrated web chatbot. I can use either OpenAI or basic semantic search to answer your questions about the scraped website data. Current target: <strong>${currentWebsite}</strong><br><br>Please start scraping to begin gathering data from this website.</div></div>`;
                 } else {
                     indicator.className = 'status-indicator error';
                     statusText.textContent = data.message || 'Failed to reset data.';
@@ -999,7 +1059,7 @@
                         // Clear chat box to indicate fresh start
                         const chatBox = document.getElementById('chat-box');
                         const currentWebsite = document.getElementById('website-url').value;
-                        chatBox.innerHTML = `<div class="message bot"><div class="message-bubble bot">Hello! I'm your integrated web chatbot. I can use either Gemini AI or basic semantic search to answer your questions about the scraped website data. Current target: <strong>${currentWebsite}</strong><br><br>Please start scraping to begin gathering data from this website.</div></div>`;
+                        chatBox.innerHTML = `<div class="message bot"><div class="message-bubble bot">Hello! I'm your integrated web chatbot. I can use either OpenAI or basic semantic search to answer your questions about the scraped website data. Current target: <strong>${currentWebsite}</strong><br><br>Please start scraping to begin gathering data from this website.</div></div>`;
                         
                         // Update status
                         updateScrapingButton();
@@ -1061,14 +1121,75 @@
                 botMessageDiv.className = 'message bot';
                 let botMessageContent = `<div class="message-bubble bot">${data.answer}`;
 
-                if (data.source_urls && data.source_urls.length > 0) {
-                    let sourceLinksHtml = '<div class="source-links">Source(s): ';
-                    data.source_urls.forEach(url => {
-                        sourceLinksHtml += `<a href="${url}" target="_blank">${new URL(url).hostname}</a>`;
+                // Enhanced source display with titles, categories, and site mapping
+                if (data.source_info && data.source_info.length > 0) {
+                    let sourceLinksHtml = '<div class="source-links"><strong>📎 Sources & Site Mapping:</strong><br>';
+                    data.source_info.forEach((source, index) => {
+                        const url = source.url;
+                        const title = source.title || 'Untitled';
+                        const category = source.category || 'General';
+                        const sourceType = source.source_type || 'unknown';
+                        const similarity = source.similarity || 0;
+                        
+                        // Determine display URL
+                        let displayUrl = url;
+                        let isClickable = true;
+                        
+                        if (url.startsWith('Custom:')) {
+                            displayUrl = url.replace('Custom:', '').trim();
+                            isClickable = false;
+                        } else {
+                            try {
+                                const urlObj = new URL(url);
+                                displayUrl = urlObj.hostname + urlObj.pathname;
+                            } catch (e) {
+                                displayUrl = url;
+                            }
+                        }
+                        
+                        // Build source entry with rich information
+                        sourceLinksHtml += `<div class="source-entry">`;
+                        sourceLinksHtml += `<span class="source-number">${index + 1}.</span> `;
+                        
+                        if (isClickable && !url.startsWith('Custom:')) {
+                            sourceLinksHtml += `<a href="${url}" target="_blank" class="source-link" title="${url}">${title}</a>`;
+                        } else {
+                            sourceLinksHtml += `<span class="source-title">${title}</span>`;
+                        }
+                        
+                        sourceLinksHtml += ` <span class="source-category">(${category})</span>`;
+                        
+                        if (sourceType === 'custom') {
+                            sourceLinksHtml += ` <span class="source-badge custom-badge">Custom Data</span>`;
+                        } else {
+                            sourceLinksHtml += ` <span class="source-badge scraped-badge">Website</span>`;
+                        }
+                        
+                        if (similarity > 0) {
+                            sourceLinksHtml += ` <span class="similarity-score" title="Relevance: ${(similarity * 100).toFixed(0)}%">${(similarity * 100).toFixed(0)}%</span>`;
+                        }
+                        
+                        sourceLinksHtml += `</div>`;
+                    });
+                    sourceLinksHtml += '</div>';
+                    botMessageContent += sourceLinksHtml;
+                } else if (data.source_urls && data.source_urls.length > 0) {
+                    // Fallback to simple URL display for backward compatibility
+                    let sourceLinksHtml = '<div class="source-links"><strong>📎 Sources:</strong> ';
+                    data.source_urls.forEach((url, index) => {
+                        try {
+                            const urlObj = new URL(url);
+                            sourceLinksHtml += `<a href="${url}" target="_blank" class="source-link">${urlObj.hostname}</a>`;
+                            if (index < data.source_urls.length - 1) sourceLinksHtml += ', ';
+                        } catch (e) {
+                            sourceLinksHtml += `<a href="${url}" target="_blank" class="source-link">${url}</a>`;
+                            if (index < data.source_urls.length - 1) sourceLinksHtml += ', ';
+                        }
                     });
                     sourceLinksHtml += '</div>';
                     botMessageContent += sourceLinksHtml;
                 }
+                
                 botMessageContent += `</div>`;
                 botMessageDiv.innerHTML = botMessageContent;
                 chatBox.appendChild(botMessageDiv);

@@ -6,7 +6,9 @@ from selenium.common.exceptions import TimeoutException, WebDriverException
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 import time
-import re 
+import re
+import requests
+from xml.etree import ElementTree as ET 
 
 # Try to use webdriver-manager for automatic ChromeDriver management
 try:
@@ -28,6 +30,92 @@ visited = set()
 driver = None
 playwright_browser = None
 playwright_context = None
+
+def discover_links_from_sitemap(base_url):
+    """Discover links from sitemap.xml if available."""
+    sitemap_urls = []
+    sitemap_paths = [
+        '/sitemap.xml',
+        '/sitemap_index.xml',
+        '/sitemap-index.xml',
+        '/sitemap1.xml'
+    ]
+    
+    for path in sitemap_paths:
+        try:
+            sitemap_url = urljoin(base_url, path)
+            response = requests.get(sitemap_url, timeout=10)
+            if response.status_code == 200:
+                print(f"[+] Found sitemap at {sitemap_url}")
+                try:
+                    root = ET.fromstring(response.content)
+                    # Handle sitemap index
+                    if root.tag.endswith('sitemapindex'):
+                        for sitemap in root.findall('.//{http://www.sitemaps.org/schemas/sitemap/0.9}sitemap'):
+                            loc = sitemap.find('{http://www.sitemaps.org/schemas/sitemap/0.9}loc')
+                            if loc is not None:
+                                sitemap_urls.append(loc.text)
+                    # Handle regular sitemap
+                    elif root.tag.endswith('urlset'):
+                        for url_elem in root.findall('.//{http://www.sitemaps.org/schemas/sitemap/0.9}url'):
+                            loc = url_elem.find('{http://www.sitemaps.org/schemas/sitemap/0.9}loc')
+                            if loc is not None:
+                                sitemap_urls.append(loc.text)
+                except ET.ParseError:
+                    # Try parsing as plain text sitemap
+                    for line in response.text.split('\n'):
+                        if '<loc>' in line:
+                            url = line.split('<loc>')[1].split('</loc>')[0].strip()
+                            if url:
+                                sitemap_urls.append(url)
+                break
+        except Exception as e:
+            continue
+    
+    return sitemap_urls
+
+def discover_links_from_robots(base_url):
+    """Discover links from robots.txt if available."""
+    robots_urls = []
+    try:
+        robots_url = urljoin(base_url, '/robots.txt')
+        response = requests.get(robots_url, timeout=10)
+        if response.status_code == 200:
+            print(f"[+] Found robots.txt at {robots_url}")
+            for line in response.text.split('\n'):
+                if line.lower().startswith('sitemap:'):
+                    sitemap_url = line.split(':', 1)[1].strip()
+                    robots_urls.append(sitemap_url)
+    except Exception as e:
+        pass
+    
+    return robots_urls
+
+def get_common_paths(base_url):
+    """Get common website paths to check."""
+    common_paths = [
+        '/about', '/about-us', '/aboutus', '/company', '/our-story', '/story',
+        '/team', '/our-team', '/leadership', '/people',
+        '/services', '/service', '/products', '/product', '/solutions', '/solution',
+        '/portfolio', '/projects', '/work', '/case-studies', '/cases',
+        '/blog', '/news', '/articles', '/updates', '/press', '/media',
+        '/careers', '/jobs', '/opportunities', '/hiring', '/join-us', '/work-with-us',
+        '/contact', '/contact-us', '/contactus', '/get-in-touch', '/reach-us',
+        '/career', '/job', '/life', '/culture', '/values', '/mission', '/vision',
+        '/culture', '/company-life', '/life-at-company', '/work-life', '/employee-life',
+        '/faq', '/faqs', '/help', '/support', '/terms', '/privacy', '/policy',
+        '/testimonials', '/reviews', '/clients', '/customers', '/partners',
+        '/locations', '/offices', '/address', '/where-we-are'
+    ]
+    
+    urls = []
+    for path in common_paths:
+        urls.append(urljoin(base_url, path))
+        # Also try with trailing slash
+        if not path.endswith('/'):
+            urls.append(urljoin(base_url, path + '/'))
+    
+    return urls
 
 def is_internal(base_url, link):
     """Check if a link is internal or a subdomain."""
@@ -73,7 +161,7 @@ def extract_job_opportunities(soup):
     """
     Extracts job opportunity titles/summaries.
     This is highly dependent on the website's HTML structure for job listings.
-    You will likely need to inspect the HTML of inciem.com's careers/jobs page.
+    Works generically for most websites with common job listing patterns.
     """
     jobs = []
     job_section = soup.find('div', class_='careers-section') # Adjust this class name
@@ -292,46 +380,118 @@ def extract_addresses(soup):
     return addresses
 
 def extract_services_products(soup):
-    """Extract services and products with descriptions."""
+    """Extract services and products with descriptions - comprehensive extraction."""
     services = []
+    seen_services = set()  # Avoid duplicates
     
     # Look for common service/product indicators
-    service_keywords = ['service', 'product', 'solution', 'offering', 'feature']
+    service_keywords = ['service', 'product', 'solution', 'offering', 'feature', 'capability', 'expertise']
     
-    # Find sections that might contain services
-    for section in soup.find_all(['section', 'div'], class_=re.compile(r'service|product|solution|offering|feature', re.IGNORECASE)):
+    # Method 1: Find sections that might contain services/products
+    for section in soup.find_all(['section', 'div', 'article'], class_=re.compile(r'service|product|solution|offering|feature|capability', re.IGNORECASE)):
         heading = section.find(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
-        description = section.find(['p', 'div'], class_=re.compile(r'description|content|text', re.IGNORECASE))
+        description = section.find(['p', 'div'], class_=re.compile(r'description|content|text|detail', re.IGNORECASE))
         
         if heading:
-            service_data = {
-                'name': heading.get_text(strip=True),
-                'description': ''
-            }
-            
-            if description:
-                service_data['description'] = description.get_text(strip=True)[:500]
-            else:
-                # Get first paragraph after heading
-                next_p = heading.find_next('p')
-                if next_p:
-                    service_data['description'] = next_p.get_text(strip=True)[:500]
-            
-            if service_data['name']:
-                services.append(service_data)
+            service_name = heading.get_text(strip=True)
+            if service_name and service_name.lower() not in seen_services:
+                service_data = {
+                    'name': service_name,
+                    'description': ''
+                }
+                
+                if description:
+                    service_data['description'] = description.get_text(strip=True)[:800]  # Increased from 500
+                else:
+                    # Get all paragraphs after heading
+                    paragraphs = []
+                    for p in heading.find_all_next(['p', 'div'], limit=5):
+                        p_text = p.get_text(strip=True)
+                        if len(p_text) > 20:
+                            paragraphs.append(p_text)
+                    if paragraphs:
+                        service_data['description'] = ' '.join(paragraphs)[:800]
+                
+                if service_data['name']:
+                    services.append(service_data)
+                    seen_services.add(service_name.lower())
     
-    # Also look for list items that might be services
+    # Method 2: Look for list items that might be services (more comprehensive)
     for li in soup.find_all('li'):
         text = li.get_text(strip=True)
-        parent = li.find_parent(['ul', 'ol'])
+        if not text or len(text) < 5:
+            continue
+            
+        parent = li.find_parent(['ul', 'ol', 'div', 'section'])
         if parent:
             parent_class = ' '.join(parent.get('class', []))
-            if any(keyword in parent_class.lower() for keyword in service_keywords):
-                if len(text) > 10 and len(text) < 300:
+            parent_id = parent.get('id', '')
+            parent_text = parent.get_text(strip=True).lower()
+            
+            # Check if parent is service/product related
+            is_service_parent = (
+                any(keyword in parent_class.lower() for keyword in service_keywords) or
+                any(keyword in parent_id.lower() for keyword in service_keywords) or
+                any(keyword in parent_text[:200] for keyword in ['service', 'product', 'offering', 'solution'])
+            )
+            
+            if is_service_parent and len(text) > 5 and len(text) < 500:
+                # Try to get description from next sibling or parent
+                description = ''
+                next_sibling = li.find_next_sibling(['p', 'div', 'li'])
+                if next_sibling:
+                    desc_text = next_sibling.get_text(strip=True)
+                    if len(desc_text) > 20 and len(desc_text) < 300:
+                        description = desc_text
+                
+                service_name = text
+                if service_name.lower() not in seen_services:
                     services.append({
-                        'name': text,
-                        'description': ''
+                        'name': service_name,
+                        'description': description
                     })
+                    seen_services.add(service_name.lower())
+    
+    # Method 3: Look for cards/grid items that might be services
+    for card in soup.find_all(['div', 'article', 'section'], class_=re.compile(r'card|item|grid-item|service-card|product-card', re.IGNORECASE)):
+        heading = card.find(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+        if heading:
+            service_name = heading.get_text(strip=True)
+            if service_name and service_name.lower() not in seen_services:
+                # Get description from card
+                desc_elem = card.find(['p', 'div'], class_=re.compile(r'description|content|text|detail|summary', re.IGNORECASE))
+                description = desc_elem.get_text(strip=True)[:800] if desc_elem else ''
+                
+                if not description:
+                    # Try to get any paragraph in the card
+                    p_elem = card.find('p')
+                    if p_elem:
+                        description = p_elem.get_text(strip=True)[:800]
+                
+                services.append({
+                    'name': service_name,
+                    'description': description
+                })
+                seen_services.add(service_name.lower())
+    
+    # Method 4: Extract from headings that might be service names
+    for heading in soup.find_all(['h2', 'h3', 'h4'], class_=re.compile(r'service|product|solution', re.IGNORECASE)):
+        service_name = heading.get_text(strip=True)
+        if service_name and len(service_name) > 3 and service_name.lower() not in seen_services:
+            # Get description from next elements
+            description = ''
+            for next_elem in heading.find_all_next(['p', 'div'], limit=3):
+                desc_text = next_elem.get_text(strip=True)
+                if len(desc_text) > 20:
+                    description += desc_text + ' '
+                    if len(description) > 500:
+                        break
+            
+            services.append({
+                'name': service_name,
+                'description': description.strip()[:800]
+            })
+            seen_services.add(service_name.lower())
     
     return services
 
@@ -405,6 +565,40 @@ def extract_tables(soup):
     
     return tables_data
 
+def extract_company_life_culture(soup):
+    """Extract company life, culture, values, mission, vision content."""
+    life_culture_content = []
+    
+    # Look for sections about company life, culture, values
+    culture_keywords = ['culture', 'life', 'values', 'mission', 'vision', 'philosophy', 
+                       'work-life', 'employee', 'team', 'people', 'environment', 
+                       'atmosphere', 'workplace', 'community', 'family']
+    
+    # Find sections with culture-related classes or IDs
+    for section in soup.find_all(['section', 'div', 'article'], 
+                                 class_=re.compile('|'.join(culture_keywords), re.IGNORECASE)):
+        text = section.get_text(separator='\n', strip=True)
+        if len(text) > 50:
+            life_culture_content.append(text)
+    
+    # Find headings related to culture/life
+    for heading in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
+        heading_text = heading.get_text(strip=True).lower()
+        if any(keyword in heading_text for keyword in culture_keywords):
+            # Get the content after this heading
+            next_siblings = []
+            for sibling in heading.next_siblings:
+                if sibling.name in ['p', 'div', 'section', 'ul', 'ol']:
+                    sibling_text = sibling.get_text(separator=' ', strip=True)
+                    if len(sibling_text) > 20:
+                        next_siblings.append(sibling_text)
+                if len(next_siblings) >= 5:  # Limit to 5 paragraphs
+                    break
+            if next_siblings:
+                life_culture_content.append(f"{heading.get_text(strip=True)}: {' '.join(next_siblings)}")
+    
+    return '\n\n'.join(life_culture_content[:10])  # Limit to first 10 sections
+
 def format_detailed_content(soup, url, base_url):
     """Format detailed content with all extracted information."""
     detailed_content = []
@@ -415,28 +609,85 @@ def format_detailed_content(soup, url, base_url):
         detailed_content.append(f"PAGE TITLE: {metadata['title']}")
     if metadata['description']:
         detailed_content.append(f"PAGE DESCRIPTION: {metadata['description']}")
+    if metadata['og_title']:
+        detailed_content.append(f"OPEN GRAPH TITLE: {metadata['og_title']}")
+    if metadata['og_description']:
+        detailed_content.append(f"OPEN GRAPH DESCRIPTION: {metadata['og_description']}")
     
     # Headings structure
     headings = extract_headings_structure(soup)
     if headings:
         detailed_content.append("\n=== PAGE STRUCTURE (HEADINGS) ===")
-        for heading in headings[:20]:  # Limit to first 20 headings
+        for heading in headings[:30]:  # Increased from 20 to 30
             indent = "  " * (heading['level'] - 1)
             detailed_content.append(f"{indent}H{heading['level']}: {heading['text']}")
     
-    # Main content sections
-    detailed_content.append("\n=== MAIN CONTENT ===")
-    main_content = soup.get_text(separator='\n', strip=True)
-    detailed_content.append(main_content)
+    # Company Life and Culture (NEW)
+    life_culture = extract_company_life_culture(soup)
+    if life_culture:
+        detailed_content.append("\n=== COMPANY LIFE & CULTURE ===")
+        detailed_content.append(life_culture)
     
-    # Services/Products
+    # Main content sections - extract more thoroughly
+    detailed_content.append("\n=== MAIN CONTENT ===")
+    
+    # Extract content from main semantic HTML5 elements
+    main_content_parts = []
+    
+    # Priority 1: Get content from main, article, section elements (preserve structure)
+    for tag in soup.find_all(['main', 'article', 'section']):
+        # Get text with better structure preservation
+        tag_text = tag.get_text(separator='\n', strip=True)
+        if len(tag_text) > 100:
+            main_content_parts.append(tag_text)
+    
+    # Priority 2: If no semantic elements, get content from divs with content classes
+    if not main_content_parts:
+        for div in soup.find_all('div', class_=re.compile(r'content|main|body|text|description', re.IGNORECASE)):
+            div_text = div.get_text(separator='\n', strip=True)
+            if len(div_text) > 200:  # Only substantial divs
+                main_content_parts.append(div_text)
+    
+    # Priority 3: If still no content, get all text
+    if not main_content_parts:
+        main_content = soup.get_text(separator='\n', strip=True)
+        main_content_parts.append(main_content)
+    
+    # Combine all content parts (limit to avoid too much content)
+    combined_content = '\n\n'.join(main_content_parts[:10])  # Limit to first 10 sections
+    detailed_content.append(combined_content)
+    
+    # Also extract any tables that might contain product/service information
+    tables = extract_tables(soup)
+    if tables:
+        detailed_content.append("\n=== TABLES (May contain product/service data) ===")
+        for table_idx, table in enumerate(tables[:5], 1):  # Limit to first 5 tables
+            if table['headers']:
+                detailed_content.append(f"\nTable {table_idx} Headers: {', '.join(table['headers'])}")
+            if table['rows']:
+                for row_idx, row in enumerate(table['rows'][:10], 1):  # First 10 rows
+                    detailed_content.append(f"  Row {row_idx}: {' | '.join(row[:5])}")  # First 5 columns
+    
+    # Services/Products - Enhanced extraction and formatting
     services = extract_services_products(soup)
     if services:
-        detailed_content.append("\n=== SERVICES/PRODUCTS ===")
-        for service in services[:15]:  # Limit to first 15
-            detailed_content.append(f"Service: {service['name']}")
+        detailed_content.append("\n=== SERVICES/PRODUCTS (COMPREHENSIVE LIST) ===")
+        for idx, service in enumerate(services[:30], 1):  # Increased from 15 to 30
+            detailed_content.append(f"\n{idx}. {service['name']}")
             if service['description']:
-                detailed_content.append(f"  Description: {service['description']}")
+                detailed_content.append(f"   {service['description']}")
+        detailed_content.append(f"\n[Total services/products found: {len(services)}]")
+    
+    # Also extract any tables that might contain product/service information
+    tables = extract_tables(soup)
+    if tables:
+        detailed_content.append("\n=== TABLES (May contain product/service data) ===")
+        for table_idx, table in enumerate(tables[:5], 1):  # Limit to first 5 tables
+            if table['headers']:
+                detailed_content.append(f"\nTable {table_idx} Headers: {', '.join(table['headers'])}")
+            if table['rows']:
+                for row_idx, row in enumerate(table['rows'][:10], 1):  # First 10 rows
+                    detailed_content.append(f"  Row {row_idx}: {' | '.join(row[:5])}")  # First 5 columns
     
     # Contact information
     contact_info = extract_contact_info(soup)
@@ -485,36 +736,53 @@ def format_detailed_content(soup, url, base_url):
     return '\n'.join(detailed_content)
 
 
-def get_page_content_with_playwright(url, page, wait_time=20):
+def get_page_content_with_playwright(url, page, wait_time=30):
     """Fetch page content using Playwright to handle JavaScript rendering."""
     try:
         print(f"    Loading {url} with Playwright...")
         page.goto(url, wait_until="networkidle", timeout=wait_time * 1000)
         
-        # Wait for React content to load
-        max_wait = 10
+        # Scroll down to trigger lazy loading
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        page.wait_for_timeout(2000)
+        page.evaluate("window.scrollTo(0, 0)")
+        page.wait_for_timeout(1000)
+        
+        # Wait for React content to load - increased wait time
+        max_wait = 15  # Increased from 10
         wait_interval = 1
         waited = 0
+        best_content = None
+        best_text_length = 0
         
         while waited < max_wait:
             content = page.content()
             
             # Check if React content has loaded
             if "You need to enable JavaScript to run this app" not in content:
-                # Additional wait
-                page.wait_for_timeout(2000)
+                # Additional wait for dynamic content
+                page.wait_for_timeout(3000)  # Increased from 2000
                 content = page.content()
                 soup_check = BeautifulSoup(content, "html.parser")
+                for tag in soup_check(["script", "style", "noscript"]):
+                    tag.decompose()
                 text_check = soup_check.get_text(separator=' ', strip=True)
-                if len(text_check) > 50:
+                if len(text_check) > best_text_length:
+                    best_content = content
+                    best_text_length = len(text_check)
+                if len(text_check) > 100:
                     print(f"    [OK] Content loaded ({len(text_check)} chars)")
                     return content
             
             # Check for meaningful content
             soup_temp = BeautifulSoup(content, "html.parser")
-            for tag in soup_temp(["script", "style"]):
+            for tag in soup_temp(["script", "style", "noscript"]):
                 tag.decompose()
             text_temp = soup_temp.get_text(separator=' ', strip=True)
+            
+            if len(text_temp) > best_text_length:
+                best_content = content
+                best_text_length = len(text_temp)
             
             if len(text_temp) > 100 and "You need to enable JavaScript to run this app" not in text_temp:
                 print(f"    [OK] Content found ({len(text_temp)} chars)")
@@ -523,13 +791,19 @@ def get_page_content_with_playwright(url, page, wait_time=20):
             page.wait_for_timeout(wait_interval * 1000)
             waited += wait_interval
         
-        # Final check
-        page.wait_for_timeout(2000)
+        # Final check - scroll and wait more
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        page.wait_for_timeout(3000)
         content = page.content()
         soup_final = BeautifulSoup(content, "html.parser")
-        for tag in soup_final(["script", "style"]):
+        for tag in soup_final(["script", "style", "noscript"]):
             tag.decompose()
         text_final = soup_final.get_text(separator=' ', strip=True)
+        
+        # Use best content if available
+        if best_text_length > len(text_final):
+            content = best_content
+            text_final = soup_final.get_text(separator=' ', strip=True) if best_content else text_final
         
         if len(text_final) > 50:
             print(f"    [OK] Content extracted ({len(text_final)} chars)")
@@ -545,7 +819,7 @@ def get_page_content_with_playwright(url, page, wait_time=20):
         except:
             return None
 
-def get_page_content_with_selenium(url, driver, wait_time=30):
+def get_page_content_with_selenium(url, driver, wait_time=40):
     """Fetch page content using Selenium to handle JavaScript rendering."""
     try:
         print(f"    Loading {url}...")
@@ -556,12 +830,18 @@ def get_page_content_with_selenium(url, driver, wait_time=30):
             lambda d: d.execute_script("return document.readyState") == "complete"
         )
         
+        # Scroll to trigger lazy loading
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(2)
+        driver.execute_script("window.scrollTo(0, 0);")
+        time.sleep(1)
+        
         # Wait longer for React to hydrate
         print("    Waiting for React content to render...")
         time.sleep(5)  # Initial wait for React
         
         # Wait for React to hydrate - check if placeholder text is gone
-        max_wait = 20
+        max_wait = 25  # Increased from 20
         wait_interval = 2
         waited = 0
         best_content = None
@@ -589,21 +869,27 @@ def get_page_content_with_selenium(url, driver, wait_time=30):
             if not has_placeholder and text_length > 100:
                 # Good content found!
                 print(f"    ✓ Content loaded ({text_length} chars)")
-                time.sleep(1)  # One more second to ensure everything is rendered
+                time.sleep(2)  # Increased wait time
                 return driver.page_source
             
             if text_length > 200 and not has_placeholder:
                 # Even better content
                 print(f"    ✓ Rich content found ({text_length} chars)")
-                time.sleep(1)
+                time.sleep(2)
                 return driver.page_source
+            
+            # Scroll again to trigger more content loading
+            if waited % 6 == 0:  # Scroll every 6 seconds
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(1)
             
             print(f"    Waiting... ({waited}/{max_wait}s, {text_length} chars, placeholder: {has_placeholder})")
             time.sleep(wait_interval)
             waited += wait_interval
         
-        # Final check - use the best content we found, or current if it's decent
-        time.sleep(2)
+        # Final scroll and check - use the best content we found, or current if it's decent
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(3)
         final_source = driver.page_source
         soup_final = BeautifulSoup(final_source, "html.parser")
         for tag in soup_final(["script", "style", "noscript"]):
@@ -739,14 +1025,50 @@ def crawl_website(base_url, max_pages=100):
         'social_links': []
     }
 
+    # Discover links from sitemap
+    print("[+] Discovering links from sitemap...")
+    sitemap_urls = discover_links_from_sitemap(base_url)
+    for url in sitemap_urls[:50]:  # Limit to first 50 from sitemap
+        if is_internal(base_url, url):
+            to_visit.append(url)
+    print(f"[+] Added {len(sitemap_urls[:50])} URLs from sitemap")
     
-    if 'contact' not in base_url and 'about' not in base_url:
+    # Discover links from robots.txt
+    print("[+] Discovering links from robots.txt...")
+    robots_urls = discover_links_from_robots(base_url)
+    for url in robots_urls:
+        if is_internal(base_url, url):
+            to_visit.append(url)
+    
+    # Add common paths
+    print("[+] Adding common website paths...")
+    common_paths = get_common_paths(base_url)
+    for path_url in common_paths:
+        if path_url not in to_visit:
+            to_visit.append(path_url)
+    print(f"[+] Added {len(common_paths)} common paths")
+    
+    # Add specific important paths
+    if 'contact' not in base_url.lower() and 'about' not in base_url.lower():
         to_visit.append(urljoin(base_url, '/contact-us/')) 
         to_visit.append(urljoin(base_url, '/contact/'))
-    if 'career' not in base_url and 'job' not in base_url:
+        to_visit.append(urljoin(base_url, '/get-in-touch/'))
+    if 'career' not in base_url.lower() and 'job' not in base_url.lower():
         to_visit.append(urljoin(base_url, '/careers/')) 
         to_visit.append(urljoin(base_url, '/jobs/'))
         to_visit.append(urljoin(base_url, '/opportunities/'))
+        to_visit.append(urljoin(base_url, '/join-us/'))
+    if 'about' not in base_url.lower():
+        to_visit.append(urljoin(base_url, '/about/'))
+        to_visit.append(urljoin(base_url, '/about-us/'))
+        to_visit.append(urljoin(base_url, '/company/'))
+    if 'life' not in base_url.lower() and 'culture' not in base_url.lower():
+        to_visit.append(urljoin(base_url, '/life/'))
+        to_visit.append(urljoin(base_url, '/culture/'))
+        to_visit.append(urljoin(base_url, '/company-life/'))
+        to_visit.append(urljoin(base_url, '/life-at-company/'))
+        to_visit.append(urljoin(base_url, '/work-life/'))
+        to_visit.append(urljoin(base_url, '/employee-life/'))
 
 
     while to_visit and len(visited) < max_pages:
@@ -789,7 +1111,8 @@ def crawl_website(base_url, max_pages=100):
         detailed_length = len(detailed_content.strip()) if detailed_content else 0
         
         # More lenient check - save content if it's substantial
-        if text and text_length > 100:
+        # Always prefer detailed_content as it has more structured information
+        if text and text_length > 50:  # Lowered threshold from 100 to capture more pages
             if not has_placeholder:
                 # Use detailed content instead of plain text
                 data_collected[url] = detailed_content if detailed_length > text_length else text
@@ -801,19 +1124,27 @@ def crawl_website(base_url, max_pages=100):
                 # Count non-placeholder words
                 words = text.split()
                 non_placeholder_words = [w for w in words if "enable" not in w.lower() and "javascript" not in w.lower()]
-                if len(non_placeholder_words) > 20:
+                if len(non_placeholder_words) > 15:  # Lowered from 20 to be more lenient
                     data_collected[url] = detailed_content if detailed_length > text_length else text
                     saved_length = detailed_length if detailed_length > text_length else text_length
                     print(f"    ✓ Saved detailed content despite placeholder: {saved_length} characters ({len(non_placeholder_words)} words)")
                 else:
                     print(f"    [-] Skipping {url} - mostly placeholder text ({text_length} chars)")
-        elif text and text_length > 50:
+        elif text and text_length > 30:  # Even lower threshold for short but important pages
             if not has_placeholder:
                 data_collected[url] = detailed_content if detailed_length > text_length else text
                 saved_length = detailed_length if detailed_length > text_length else text_length
                 print(f"    ✓ Saved detailed content: {saved_length} characters")
             else:
-                print(f"    [-] Skipping {url} - placeholder detected in short content ({text_length} chars)")
+                # For short pages, be more lenient
+                words = text.split()
+                non_placeholder_words = [w for w in words if "enable" not in w.lower() and "javascript" not in w.lower()]
+                if len(non_placeholder_words) > 10:
+                    data_collected[url] = detailed_content if detailed_length > text_length else text
+                    saved_length = detailed_length if detailed_length > text_length else text_length
+                    print(f"    ✓ Saved short content: {saved_length} characters")
+                else:
+                    print(f"    [-] Skipping {url} - placeholder detected in short content ({text_length} chars)")
         else:
             print(f"    [-] Skipping {url} - insufficient content ({text_length} chars)")
             if text_length <= 20:
@@ -854,14 +1185,29 @@ def crawl_website(base_url, max_pages=100):
             specific_data_collected['social_links'].append({'url': url, 'data': social_links})
 
 
-        # Extract all <a href=""> links
+        # Extract all <a href=""> links - prioritize important links
+        important_keywords = ['life', 'culture', 'about', 'company', 'team', 'values', 
+                              'mission', 'vision', 'career', 'service', 'product', 'contact']
+        
+        priority_links = []
+        regular_links = []
+        
         for link_tag in soup.find_all("a", href=True):
             raw_link = link_tag['href']
             full_url = normalize_url(url, raw_link)
             if is_internal(base_url, full_url) and full_url not in visited:
-                
-                if full_url != url: 
-                    to_visit.append(full_url)
+                if full_url != url:
+                    link_text = link_tag.get_text(strip=True).lower()
+                    href_lower = raw_link.lower()
+                    # Check if link is important
+                    if any(keyword in link_text or keyword in href_lower for keyword in important_keywords):
+                        priority_links.append(full_url)
+                    else:
+                        regular_links.append(full_url)
+        
+        # Add priority links first, then regular links
+        to_visit.extend(priority_links)
+        to_visit.extend(regular_links)
 
         time.sleep(1)  # Be polite
 
@@ -898,7 +1244,8 @@ def crawl_website(base_url, max_pages=100):
 
 
 if __name__ == "__main__":
-    website = "https://inciem.com"
+    import sys
+    website = sys.argv[1] if len(sys.argv) > 1 else "https://example.com"
     print("=" * 60)
     print(f"Starting crawl for: {website}")
     print("=" * 60)

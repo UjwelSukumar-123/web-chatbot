@@ -143,7 +143,7 @@ def test_chatbot_with_custom_data():
                 f"{BASE_URL}/ask",
                 data={
                     'question': question,
-                    'chatbot_type': 'gemini'
+                    'chatbot_type': 'openai'
                 }
             )
             
