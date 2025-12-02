@@ -852,9 +852,8 @@ def retrieve_relevant_chunks(user_input, top_k=3, similarity_threshold=0.0):
         
         # Detect query type for boosting
         is_address_query_retrieval = any(keyword in user_input.lower() for keyword in ['address', 'location', 'where', 'office', 'contact', 'located'])
-        is_about_query_retrieval = any(keyword in user_input.lower() for keyword in ['tell me about', 'what is', 'describe', 'who is', 'about the company', 'about this company', 
-                                                                                     'company information', 'company overview', 'company background', 'what does the company do',
-                                                                                     'what is the company', 'company details', 'about us', 'company story', 'company history'])
+        is_about_query_retrieval = any(keyword in user_input.lower() for keyword in ['tell me about', 'what is', 'describe', 'who is', 'about', 'information', 'overview', 
+                                                                                     'background', 'what does', 'details', 'about us', 'story', 'history', 'what are'])
         
         # For address queries, boost chunks that contain address-related keywords
         address_keywords = ['address', 'location', 'thrikkakara', 'kakkanad', 'kochi', 'dubai', 'uae', 'office', 'building', 'street', 'postal', '682021']
@@ -901,20 +900,20 @@ def retrieve_relevant_chunks(user_input, top_k=3, similarity_threshold=0.0):
                     else:
                         print(f"Penalized chunk {i} (non-product page, penalty: {penalty:.2f})")
         
-        # For about queries, boost chunks that contain company/about-related keywords
-        about_keywords = ['about', 'company', 'mission', 'vision', 'history', 'story', 'culture', 'values', 'team', 
-                         'who we are', 'what we do', 'overview', 'background', 'overview', 'company information',
-                         'company overview', 'our story', 'our mission', 'our vision']
+        # For about queries, boost chunks that contain about-related keywords
+        about_keywords = ['about', 'mission', 'vision', 'history', 'story', 'culture', 'values', 'team', 
+                         'who we are', 'what we do', 'overview', 'background', 'our story', 'our mission', 'our vision',
+                         'introduction', 'welcome', 'home', 'main page']
         if is_about_query_retrieval:
-            # Boost similarity scores for chunks containing about/company keywords
+            # Boost similarity scores for chunks containing about-related keywords
             for i in range(len(all_chunks)):
                 chunk_text = all_chunks[i][1].lower() if isinstance(all_chunks[i], tuple) else str(all_chunks[i]).lower()
                 # Check URL and text for about-related content
                 chunk_url = all_chunks[i][0].lower() if isinstance(all_chunks[i], tuple) else ""
-                if any(keyword in chunk_text for keyword in about_keywords) or any(keyword in chunk_url for keyword in ['about', 'company', 'story', 'mission', 'vision']):
+                if any(keyword in chunk_text for keyword in about_keywords) or any(keyword in chunk_url for keyword in ['about', 'story', 'mission', 'vision', 'home', 'main']):
                     # Boost similarity by 0.3 for about-related chunks (higher than address)
                     similarities[i] = similarities[i] + 0.3
-                    print(f"Boosted chunk {i} (contains company/about keywords)")
+                    print(f"Boosted chunk {i} (contains about-related keywords)")
         
         # Get top k results - always return top-k even if below threshold
         # This ensures we always have context to work with
@@ -999,7 +998,7 @@ def retrieve_relevant_chunks(user_input, top_k=3, similarity_threshold=0.0):
 # === Enhanced OpenAI Response ===
 def generate_openai_response(user_input, relevant_chunks, is_about_query=False, is_address_query=False, is_product_query=False):
     if not OPENAI_API_KEY:
-        return "OpenAI API key not configured. Please set your OPENAI_API_KEY environment variable.", []
+        return "OpenAI API key not configured. Please set your OPENAI_API_KEY environment variable.", [], None
 
     try:
         client = openai.OpenAI(api_key=OPENAI_API_KEY)
@@ -1012,10 +1011,9 @@ def generate_openai_response(user_input, relevant_chunks, is_about_query=False, 
         product_keywords = ['product', 'service', 'offering', 'what do you', 'what does', 'what can', 'offer', 'provide', 'sell']
         is_product_query = any(keyword in user_input.lower() for keyword in product_keywords)
         
-        # Check if query is asking about the company (tell me about, what is, describe, etc.)
-        about_keywords = ['tell me about', 'what is', 'describe', 'who is', 'about the company', 'about this company', 
-                          'company information', 'company overview', 'company background', 'what does the company do',
-                          'what is the company', 'company details', 'about us', 'company story', 'company history']
+        # Check if query is asking about the website/organization (tell me about, what is, describe, etc.)
+        about_keywords = ['tell me about', 'what is', 'describe', 'who is', 'about', 'information', 'overview', 
+                          'background', 'what does', 'details', 'about us', 'story', 'history', 'what are']
         is_about_query = any(keyword in user_input.lower() for keyword in about_keywords)
         
         if relevant_chunks:
@@ -1027,7 +1025,7 @@ def generate_openai_response(user_input, relevant_chunks, is_about_query=False, 
             
             # For address queries, product queries, about queries, or generic queries, use more context
             if is_about_query:
-                text_limit = 5000  # Use maximum context for company/about queries
+                text_limit = 5000  # Use maximum context for about queries
             elif is_address_query:
                 text_limit = 3000
             elif is_product_query:
@@ -1069,11 +1067,11 @@ def generate_openai_response(user_input, relevant_chunks, is_about_query=False, 
                             context_str += f"Source {valid_chunks_used+1} ({url}):\n{cleaned_text[:text_limit]}...\n\n"
                     elif is_about_query:
                         # For about queries, prioritize main content and include maximum context
-                        about_keywords_in_text = ['about', 'company', 'mission', 'vision', 'history', 'story', 'culture', 
-                                                  'values', 'team', 'who we are', 'what we do', 'overview', 'background']
+                        about_keywords_in_text = ['about', 'mission', 'vision', 'history', 'story', 'culture', 
+                                                  'values', 'team', 'who we are', 'what we do', 'overview', 'background', 'introduction']
                         if any(keyword in cleaned_text.lower() for keyword in about_keywords_in_text):
                             # Include full or maximum context for about-related chunks
-                            context_str += f"Source {valid_chunks_used+1} ({url}) [COMPANY INFO - HIGH PRIORITY]:\n{cleaned_text[:6000]}...\n\n"
+                            context_str += f"Source {valid_chunks_used+1} ({url}) [ABOUT INFO - HIGH PRIORITY]:\n{cleaned_text[:6000]}...\n\n"
                         else:
                             # For about queries, still use more context even if not explicitly about-related
                             context_str += f"Source {valid_chunks_used+1} ({url}):\n{cleaned_text[:text_limit]}...\n\n"
@@ -1114,148 +1112,128 @@ def generate_openai_response(user_input, relevant_chunks, is_about_query=False, 
             source_urls = set()
             print("⚠️ No relevant chunks found for context")
 
-        # Enhanced prompt that mentions custom data and emphasizes finding addresses or products
+        # Enhanced prompt that emphasizes finding addresses or products
         special_instruction = ""
         if is_address_query:
             special_instruction = """
-CRITICAL: The user is asking about address or location. You MUST:
-1. Search through EVERY piece of context provided below
-2. Look for ANY mention of:
-   - Street addresses, building names/numbers (e.g., "Opp. BMC", "Sheikh Rashid Building", "R133")
-   - Cities, states, countries (e.g., "Thrikkakara", "Kakkanad", "Kochi", "Kerala", "Dubai", "UAE")
-   - Postal codes (e.g., "682021")
-   - Phrases like "Address:", "located at", "office at"
-3. Extract and present ALL address information found, even if incomplete
-4. If multiple locations exist (India office, UAE office), list BOTH
-5. DO NOT say "I don't have that information" if you see ANY location-related text in the context below
-6. Even partial addresses are valuable - include them
+The user is asking about address or location. Look carefully through the website content for:
+- Street addresses, building names/numbers
+- Cities, states, countries
+- Postal codes
+- Any location information
 
-The context below contains the information. Read it carefully and extract all address details.
+If multiple locations exist (e.g., India office, UAE office), mention all of them using first person. Say "We have offices at..." or "Our offices are located at..." NOT "They have offices at..." or "They also have...". Include all address details you find, even if incomplete.
 """
         elif is_about_query:
             special_instruction = """
-CRITICAL: The user is asking about the company itself. You MUST provide a COMPREHENSIVE company description. You MUST:
-1. Search through EVERY piece of context provided below
-2. Extract and present ALL of the following information if available:
-   - Company name and what the company does
-   - Company mission, vision, values, and philosophy
-   - Company history, background, and story
-   - Services and products offered
-   - Company culture, work environment, team
-   - Key achievements, milestones, or notable facts
-   - Industries served or target markets
-   - Company size, locations, or presence
-3. Structure your response as a comprehensive company overview, NOT just contact information
-4. Prioritize main content pages (homepage, about, company pages) over contact pages
-5. DO NOT just list contact information - provide a full company description
-6. If contact info is relevant, include it at the end, but focus on company description first
-7. Be detailed and comprehensive - this is a company overview query
+The user is asking about the website/organization/topic. Provide a comprehensive description including:
+- What it is about or what it does
+- Mission, vision, values (if applicable)
+- History and background
+- Services, products, or offerings (if applicable)
+- Key information, features, or highlights
+- Achievements and milestones (if applicable)
+- Any other relevant details
 
-The context below contains the information. Read it carefully and provide a complete company description.
+Focus on providing comprehensive information, not just contact details. Be detailed and comprehensive.
 """
         elif is_product_query:
             special_instruction = """
-CRITICAL: The user is asking about products, services, or offerings. You MUST:
-1. Search through EVERY piece of context provided below - prioritize product/service pages over contact/privacy pages
-2. Look for ANY mention of:
-   - Product names, service names, offerings, solutions
-   - Features, capabilities, solutions, applications
-   - Applications, platforms, tools, software, apps
-   - Services provided, what the company does, what they offer
-   - Service categories, product categories, service lists
-3. Extract and present ALL product/service information found, even if incomplete
-4. List ALL products/services mentioned in the context - be comprehensive
-5. DO NOT just mention one service - list ALL services/products found
-6. DO NOT say "I don't have that information" if you see ANY product/service-related text in the context below
-7. Be specific and detailed - include product names, descriptions, features, and capabilities
-8. If you see product/service pages in the context, prioritize information from those pages
-9. Ignore contact information, privacy policies, and terms pages unless they contain product/service details
+The user is asking about products, services, or offerings. Look for:
+- Product names, service names, offerings, solutions
+- Features, capabilities, applications
+- Platforms, tools, software, apps
+- All services, products, or offerings available
 
-The context below contains the information. Read it carefully and extract ALL product/service details comprehensively.
+List ALL products and services you find. Be specific and detailed with names, descriptions, and features. Prioritize product/service information over contact or policy pages.
 """
         
-        # Handle generic greetings - extract company info for better greeting
+        # Handle generic greetings - extract website info for better greeting
         is_greeting = user_input.lower().strip() in ['hi', 'hello', 'hey', 'greetings', 'good morning', 'good afternoon', 'good evening']
         company_info = ""
         
         if relevant_chunks:
-            # Try to extract company name or main info from first chunk (generic approach)
+            # Try to extract website name or main info from first chunk (generic approach)
             first_chunk_text = relevant_chunks[0][1] if relevant_chunks else ""
             
-            # Extract company name from page title or first heading
-            company_name = ""
+            # Extract website/organization name from page title or first heading
+            website_name = ""
             if "PAGE TITLE:" in first_chunk_text:
                 title_line = [line for line in first_chunk_text.split('\n') if 'PAGE TITLE:' in line]
                 if title_line:
-                    company_name = title_line[0].replace('PAGE TITLE:', '').strip()
-                    # Extract just the company name (before common separators)
+                    website_name = title_line[0].replace('PAGE TITLE:', '').strip()
+                    # Extract just the name (before common separators)
                     for sep in [' - ', ' | ', ' :: ', ' – ']:
-                        if sep in company_name:
-                            company_name = company_name.split(sep)[0].strip()
+                        if sep in website_name:
+                            website_name = website_name.split(sep)[0].strip()
             
-            # Extract key services or info (generic keywords)
-            services = []
-            service_keywords = {
+            # Extract key topics or info (generic keywords for various website types)
+            topics = []
+            topic_keywords = {
+                'sports': ['cricket', 'football', 'basketball', 'soccer', 'ipl', 'tournament', 'match', 'player', 'team', 'league'],
                 'mobile app development': ['mobile app', 'mobile development', 'ios', 'android', 'react native'],
                 'web development': ['web development', 'web design', 'website', 'web application'],
                 'digital marketing': ['digital marketing', 'seo', 'social media marketing', 'ppc'],
                 'software development': ['software development', 'custom software', 'application development'],
                 'consulting': ['consulting', 'consultancy', 'advisory'],
-                'design': ['ui/ux', 'user interface', 'user experience', 'graphic design']
+                'design': ['ui/ux', 'user interface', 'user experience', 'graphic design'],
+                'e-commerce': ['shop', 'buy', 'product', 'cart', 'checkout', 'store'],
+                'news': ['news', 'article', 'breaking', 'report', 'journalism']
             }
             
             text_lower = first_chunk_text.lower()
-            for service_name, keywords in service_keywords.items():
+            for topic_name, keywords in topic_keywords.items():
                 if any(keyword in text_lower for keyword in keywords):
-                    services.append(service_name)
+                    topics.append(topic_name)
             
-            if services and company_name:
-                company_info = f" {company_name} offers {', '.join(services[:3])} and more."
-            elif services:
-                company_info = f" The company offers {', '.join(services[:3])} and more."
+            if topics and website_name:
+                company_info = f" I can help you with information about {website_name}."
+            elif website_name:
+                company_info = f" I can help you with information about {website_name}."
+            elif topics:
+                company_info = f" I can help you with information about {', '.join(topics[:2])} and more."
         
-        # Build a much more forceful and comprehensive prompt
-        prompt = f"""You are an expert assistant for a company website. Your PRIMARY job is to provide COMPREHENSIVE, DETAILED answers using ALL the information provided in the context below.
+        # Build a natural, conversational prompt
+        prompt = f"""You are a helpful chatbot for this website. Answer the user's question naturally and conversationally, as if you're a friendly representative of the website.
 
 {special_instruction}
 
-ABSOLUTE MANDATORY RULES - YOU MUST FOLLOW THESE:
-1. **ALWAYS use the context provided below** - it contains REAL information from the website. DO NOT make up information.
-2. **NEVER say "I don't have that information" or "I cannot find"** - the context below HAS information, you MUST extract and use it.
-3. **NEVER repeat error messages** like "You need to enable JavaScript" - ignore such messages completely.
-4. **Provide COMPREHENSIVE answers** - don't give short, incomplete responses. Extract ALL relevant information from the context.
-5. **Be DETAILED and SPECIFIC** - include names, descriptions, features, and all relevant details from the context.
-6. **If the question is about the company**, provide a FULL company description including: what they do, services, mission, values, history, culture, achievements, and any other relevant information found in the context.
-7. **Extract and share ANY relevant information** from the context, even if it seems partial - it's still valuable.
-8. **Be conversational and helpful** - write in a natural, engaging way.
-9. **Focus on meaningful content** - ignore HTML errors, JavaScript messages, or placeholder text.
-10. **If asked a greeting** (hi, hello), respond warmly and offer to help with company information{company_info}
+CRITICAL RULES:
+1. **ONLY use information from the context below** - DO NOT make up, guess, or hallucinate any information. If the information isn't in the context, you cannot provide it.
+2. **Respond naturally** - Write as a friendly chatbot would, not as an AI assistant explaining its process.
+3. **ALWAYS use FIRST PERSON** - Use "we", "our", "us" instead of "they", "their", "them". You are representing the website/organization directly, so speak as if you are part of it.
+   - Say "We have offices in..." NOT "They have offices in..."
+   - Say "Our services include..." NOT "Their services include..."
+   - Say "We are located at..." NOT "They are located at..."
+   - Always speak from the organization's perspective using first person
+4. **NEVER use phrases like**:
+   - "Based on the context"
+   - "The details from the structured data show"
+   - "According to the information provided"
+   - "Based on the available information"
+   - "From the context above"
+   - "The data indicates"
+   - Any other meta-commentary about sources or data
+5. **Just answer directly** - State facts naturally as if you know them, without explaining where you got them from.
+6. **Be comprehensive** - Include all relevant details from the context in your answer.
+7. **Ignore error messages** - Skip any JavaScript errors, HTML errors, or placeholder text in the context.
+8. **If asked a greeting** (hi, hello), respond warmly and offer to help{company_info}
 
-CRITICAL: The context below contains REAL information from the website. Read it THOROUGHLY and extract EVERYTHING relevant to answer the question comprehensively.
-
-WEBSITE CONTENT (READ THIS CAREFULLY - it contains the answer):
+WEBSITE CONTENT:
 {context_str}
 
-Question: {user_input}
+User's question: {user_input}
 
-INSTRUCTIONS FOR YOUR ANSWER:
-- Read ALL the context above thoroughly
-- Extract EVERY piece of relevant information
-- Provide a COMPREHENSIVE, DETAILED answer
-- Be specific and include all relevant details
-- DO NOT give short or incomplete answers
-- If the question is about the company, provide a FULL company overview
-
-Answer (MUST be comprehensive and use ALL relevant information from the context above):"""
+Answer the question naturally and conversationally, using ONLY the information from the website content above. Use first person (we, our, us) to represent the website/organization. Do not mention sources, data, or context - just provide a helpful, natural response:"""
 
         response = client.chat.completions.create(
             model=OPENAI_MODEL_NAME,
             messages=[
-                {"role": "system", "content": "You are an expert assistant for a company website. You provide comprehensive, detailed answers using ONLY the information provided in the context. You NEVER say you don't have information - you ALWAYS extract and use what's available in the context."},
+                {"role": "system", "content": "You are a friendly chatbot for a website. You answer questions naturally and conversationally, using ONLY the information provided. Always use first person (we, our, us) to represent the website/organization - never use third person (they, their, them). Never mention sources, data, or context - just respond naturally as a helpful chatbot would. Never make up information that isn't in the provided context."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
-            max_tokens=3000  # Increased from 2000 to allow much longer, more comprehensive responses
+            max_tokens=3000
         )
         
         # Extract the response
@@ -1263,6 +1241,19 @@ Answer (MUST be comprehensive and use ALL relevant information from the context 
             raise Exception("No response from OpenAI API")
         
         answer = response.choices[0].message.content.strip()
+        
+        # Extract and log token usage
+        token_usage = None
+        if hasattr(response, 'usage') and response.usage:
+            token_usage = {
+                'prompt_tokens': response.usage.prompt_tokens,
+                'completion_tokens': response.usage.completion_tokens,
+                'total_tokens': response.usage.total_tokens
+            }
+            print(f" Token Usage:")
+            print(f"   - Input tokens (prompt): {token_usage['prompt_tokens']}")
+            print(f"   - Output tokens (completion): {token_usage['completion_tokens']}")
+            print(f"   - Total tokens: {token_usage['total_tokens']}")
         
         # Log full response for debugging
         print(f"🤖 Full OpenAI response ({len(answer)} chars): {answer}")
@@ -1281,7 +1272,7 @@ Answer (MUST be comprehensive and use ALL relevant information from the context 
                     cleaned = clean_text_content(text)
                     if is_valid_content(cleaned, min_length=100):
                         # Use the first valid chunk as fallback
-                        answer = f"Based on the available information:\n\n{cleaned[:300]}...\n\nWould you like more details?"
+                        answer = f"{cleaned[:300]}...\n\nWould you like more details?"
                         break
         
         print(f"✅ Final answer length: {len(answer)} characters")
@@ -1296,7 +1287,7 @@ Answer (MUST be comprehensive and use ALL relevant information from the context 
             fallback_parts = []
             
             if is_about_query:
-                # For about queries, extract comprehensive company information
+                # For about queries, extract comprehensive information
                 for url, text in relevant_chunks[:10]:  # Use up to 10 chunks
                     cleaned = clean_text_content(text)
                     if is_valid_content(cleaned, min_length=100):
@@ -1319,36 +1310,34 @@ Answer (MUST be comprehensive and use ALL relevant information from the context 
                             fallback_parts.append('\n'.join(content_lines[:30]))  # First 30 meaningful lines
                 
                 if fallback_parts:
-                    answer = "Based on the website content, here's what I found:\n\n" + "\n\n".join(fallback_parts[:5])
-                    if len(relevant_chunks) > 5:
-                        answer += f"\n\n[Information from {len(relevant_chunks)} pages]"
+                    answer = "\n\n".join(fallback_parts[:5])
                 else:
                     # Last resort: use first chunk
                     first_chunk_text = relevant_chunks[0][1]
                     cleaned_snippet = clean_text_content(first_chunk_text[:1000].strip())
-                    answer = f"Based on the website content:\n\n{cleaned_snippet}\n\nWould you like more specific information?"
+                    answer = f"{cleaned_snippet}\n\nWould you like more specific information?"
             elif is_greeting:
                 # For greetings, provide a friendly intro
-                answer = f"Hello! I'm here to help you learn about the company.{company_info} What would you like to know?"
+                answer = f"Hello! I'm here to help you.{company_info} What would you like to know?"
             else:
                 # For other queries, provide comprehensive snippets from multiple chunks
                 answer_parts = []
                 for url, text in relevant_chunks[:5]:
                     cleaned = clean_text_content(text[:800].strip())
                     if is_valid_content(cleaned, min_length=100):
-                        answer_parts.append(f"**From {url}:**\n{cleaned}")
+                        answer_parts.append(cleaned)
                 
                 if answer_parts:
-                    answer = "Based on the website content:\n\n" + "\n\n".join(answer_parts)
+                    answer = "\n\n".join(answer_parts)
                 else:
                     # Last resort
                     first_chunk_text = relevant_chunks[0][1]
                     cleaned_snippet = clean_text_content(first_chunk_text[:500].strip())
-                    answer = f"Based on the website content:\n\n{cleaned_snippet}\n\nWould you like more specific information?"
+                    answer = f"{cleaned_snippet}\n\nWould you like more specific information?"
             
             print(f"✅ Comprehensive fallback response generated from {len(relevant_chunks)} chunks")
         
-        return answer, list(source_urls)
+        return answer, list(source_urls), token_usage
         
     except Exception as e:
         import traceback
@@ -1357,15 +1346,15 @@ Answer (MUST be comprehensive and use ALL relevant information from the context 
         traceback.print_exc()
         error_msg = str(e)
         if "invalid_api_key" in error_msg.lower() or "authentication" in error_msg.lower():
-            return "Invalid API key. Please check your OpenAI API key configuration.", []
+            return "Invalid API key. Please check your OpenAI API key configuration.", [], None
         elif "permission" in error_msg.lower() or "forbidden" in error_msg.lower():
-            return "Permission denied. Please check your API key permissions.", []
+            return "Permission denied. Please check your API key permissions.", [], None
         elif "429" in error_msg or "rate_limit" in error_msg.lower() or "quota" in error_msg.lower():
-            return "API rate limit exceeded. Please try again later or upgrade your plan.", []
+            return "API rate limit exceeded. Please try again later or upgrade your plan.", [], None
         elif "context_length" in error_msg.lower() or "token" in error_msg.lower():
-            return "The context is too long. Please try a more specific question or reduce the amount of data.", []
+            return "The context is too long. Please try a more specific question or reduce the amount of data.", [], None
         else:
-            return f"Error generating response: {error_msg}. Please check the server logs for more details.", []
+            return f"Error generating response: {error_msg}. Please check the server logs for more details.", [], None
 
 # === Pydantic Models for Request/Response ===
 class QuestionRequest(BaseModel):
@@ -1455,14 +1444,14 @@ async def ask(question: str = Form(...), chatbot_type: str = Form("openai")):
         if chatbot_type == 'basic':
             # Use basic chatbot functionality
             answer, urls = basic_chatbot_response(question)
+            return JSONResponse(content={"answer": answer, "source_urls": urls})
         else:
             # Use OpenAI chatbot
             # Increase top_k for address/location queries, product queries, about queries, and generic queries to get more context
             address_keywords = ['address', 'location', 'where', 'office', 'contact', 'phone', 'email', 'located']
             product_keywords = ['product', 'service', 'offering', 'what do you', 'what does', 'what can', 'offer', 'provide', 'sell']
-            about_keywords = ['tell me about', 'what is', 'describe', 'who is', 'about the company', 'about this company', 
-                              'company information', 'company overview', 'company background', 'what does the company do',
-                              'what is the company', 'company details', 'about us', 'company story', 'company history']
+            about_keywords = ['tell me about', 'what is', 'describe', 'who is', 'about', 'information', 'overview', 
+                              'background', 'what does', 'details', 'about us', 'story', 'history', 'what are']
             is_address_query = any(keyword in question.lower() for keyword in address_keywords)
             is_product_query = any(keyword in question.lower() for keyword in product_keywords)
             is_about_query = any(keyword in question.lower() for keyword in about_keywords)
@@ -1470,7 +1459,7 @@ async def ask(question: str = Form(...), chatbot_type: str = Form("openai")):
             
             # Use more chunks for address queries, product queries, about queries, or generic queries
             if is_about_query:
-                top_k = 15  # Maximum chunks for comprehensive company description
+                top_k = 15  # Maximum chunks for comprehensive description
             elif is_address_query or is_product_query:
                 top_k = 12
             elif is_generic_query:
@@ -1480,12 +1469,13 @@ async def ask(question: str = Form(...), chatbot_type: str = Form("openai")):
             
             relevant_chunks = retrieve_relevant_chunks(question, top_k=top_k, similarity_threshold=0.0)
             # Pass query type flags to response generation
-            answer, urls = generate_openai_response(question, relevant_chunks, 
+            answer, urls, token_usage = generate_openai_response(question, relevant_chunks, 
                                                     is_about_query=is_about_query,
                                                     is_address_query=is_address_query,
                                                     is_product_query=is_product_query)
-
-        return JSONResponse(content={"answer": answer, "source_urls": urls})
+            
+            # Token usage is logged but not included in API response
+            return JSONResponse(content={"answer": answer, "source_urls": urls})
 
     except Exception as e:
         print(f"Server error: {e}")
@@ -1861,6 +1851,19 @@ async def test_api_key():
             ],
             max_tokens=50
         )
+        
+        # Log token usage but don't include in response
+        if hasattr(response, 'usage') and response.usage:
+            token_usage = {
+                'prompt_tokens': response.usage.prompt_tokens,
+                'completion_tokens': response.usage.completion_tokens,
+                'total_tokens': response.usage.total_tokens
+            }
+            print(f"📊 Token Usage (test_api):")
+            print(f"   - Input tokens (prompt): {token_usage['prompt_tokens']}")
+            print(f"   - Output tokens (completion): {token_usage['completion_tokens']}")
+            print(f"   - Total tokens: {token_usage['total_tokens']}")
+        
         return JSONResponse(content={
             "status": "success",
             "api_key_preview": OPENAI_API_KEY[:10] + "...",
