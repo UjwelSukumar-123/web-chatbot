@@ -357,9 +357,13 @@ def extract_addresses(soup):
     
     # Look for address patterns (street, city, state, zip/postal code)
     # Common patterns: "Street, City, State ZIP" or "Street, City, Country"
+    # Generic patterns that work for any location worldwide
     address_patterns = [
         r'\d+[\s\w]+(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Lane|Ln|Boulevard|Blvd|Way|Circle|Ct)[,\s]+[\w\s]+(?:,\s*)?[\w\s]+(?:,\s*)?(?:\d{5,6})?',
-        r'[\w\s]+(?:,\s*)?[\w\s]+(?:,\s*)?(?:Kerala|India|UAE|United Kingdom|UK|Dubai|Kochi)[,\s]*(?:\d{5,6})?'
+        # Generic pattern for addresses with city/state/country followed by postal code
+        r'[\w\s]+(?:,\s*)?[\w\s]+(?:,\s*)?[\w\s]+(?:,\s*)?(?:\d{5,6})?',
+        # Pattern for addresses with common address keywords
+        r'(?:Address|Office|Location|Headquarters|HQ)[:\s]+[\w\s,]+(?:\d{5,6})?'
     ]
     
     for pattern in address_patterns:

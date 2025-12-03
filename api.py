@@ -14,7 +14,9 @@ import openai
 from chatbot import (
     basic_chatbot_response, 
     retrieve_relevant_chunks, 
-    generate_openai_response
+    generate_openai_response,
+    extract_name_from_introduction,
+    get_greeting_response
 )
 from custom_data import (
     add_custom_data, 
@@ -76,6 +78,28 @@ def create_app(
             if not question:
                 return JSONResponse(content={"answer": "Please enter a question.", "source_urls": []})
             
+            # Check if user is introducing themselves (e.g., "I am John", "my name is Sarah")
+            extracted_name = extract_name_from_introduction(question)
+            if extracted_name:
+                set_state("user_name", extracted_name)
+                company_info = ""
+                # Try to get company info from scraped data if available
+                scraped_pages = get_state("scraped_data_pages")
+                if scraped_pages:
+                    first_chunk_text = scraped_pages[0][1] if scraped_pages else ""
+                    if "PAGE TITLE:" in first_chunk_text:
+                        title_line = [line for line in first_chunk_text.split('\n') if 'PAGE TITLE:' in line]
+                        if title_line:
+                            website_name = title_line[0].replace('PAGE TITLE:', '').strip()
+                            for sep in [' - ', ' | ', ' :: ', ' – ']:
+                                if sep in website_name:
+                                    website_name = website_name.split(sep)[0].strip()
+                            if website_name:
+                                company_info = f" I can help you with information about {website_name}."
+                
+                greeting = get_greeting_response(company_info=company_info, user_name=extracted_name)
+                return JSONResponse(content={"answer": greeting, "source_urls": []})
+            
             if not embedder:
                 return JSONResponse(content={
                     "answer": "Sentence transformer model not available. Please check your installation.",
@@ -123,8 +147,11 @@ def create_app(
                     get_state("custom_data_embeddings"),
                     get_state("custom_data_sources"),
                     top_k=top_k,
-                    similarity_threshold=0.0
+                    similarity_threshold=0.3  # Only return chunks with similarity >= 0.3 to avoid irrelevant responses
                 )
+                
+                # Get stored user name for personalized greetings
+                stored_user_name = get_state("user_name") or ""
                 
                 answer, urls, token_usage = generate_openai_response(
                     question,
@@ -133,7 +160,8 @@ def create_app(
                     openai_model_name,
                     is_about_query=is_about_query,
                     is_address_query=is_address_query,
-                    is_product_query=is_product_query
+                    is_product_query=is_product_query,
+                    user_name=stored_user_name
                 )
                 
                 return JSONResponse(content={"answer": answer, "source_urls": urls})
@@ -187,10 +215,10 @@ def create_app(
                 set_state("structured_data_embeddings", None)
                 set_state("structured_data_sources", [])
                 set_state("scraping_complete", False)
-                print("✅ Old data cleared")
+                print("Old data cleared")
             
             set_state("target_website", new_website)
-            print(f"✅ Target website updated to: {new_website}")
+            print(f"Target website updated to: {new_website}")
             
             response_data = {
                 "status": "success",

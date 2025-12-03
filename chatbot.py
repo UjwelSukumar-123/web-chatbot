@@ -5,6 +5,7 @@ Handles all chatbot logic including semantic retrieval and response generation
 
 import re
 import numpy as np
+import random
 from sentence_transformers import SentenceTransformer, util
 import openai
 from typing import List, Tuple, Optional, Dict
@@ -15,6 +16,165 @@ try:
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
+
+
+def get_greeting_response(company_info="", user_name=""):
+    """Return a random greeting response with variety, optionally personalized with user name"""
+    name_part = f", {user_name}!" if user_name else "!"
+    
+    greetings = [
+        f"Hello{name_part} I'm here to help you.{company_info} What would you like to know?",
+        f"Hi there{name_part} Welcome!{company_info} How can I assist you today?",
+        f"Hey{name_part} Great to see you!{company_info} What can I help you with?",
+        f"Greetings{name_part} I'm ready to help.{company_info} What questions do you have?",
+        f"Hello{name_part} Nice to meet you!{company_info} Feel free to ask me anything.",
+        f"Hi{name_part} I'm here and ready to assist.{company_info} What would you like to know?",
+        f"Hey there{name_part} Welcome!{company_info} I'm here to answer your questions.",
+        f"Hello{name_part} How can I help you today?{company_info}",
+        f"Hi{name_part} Good to see you!{company_info} What can I do for you?",
+        f"Greetings{name_part} I'm your friendly assistant.{company_info} Ask me anything!",
+        f"Hello{name_part} I'm excited to help.{company_info} What would you like to learn about?",
+        f"Hi there{name_part} I'm here to assist you.{company_info} What questions can I answer?",
+        f"Hey{name_part} Welcome aboard!{company_info} How can I be of service?",
+        f"Hello{name_part} It's great to have you here.{company_info} What can I help you discover?",
+        f"Hi{name_part} I'm ready to help.{company_info} What would you like to know more about?",
+        f"Hey{name_part} {company_info} What can I help you with today?",
+        f"Hello there{name_part} I'm glad you're here.{company_info} How may I assist you?",
+        f"Hi{name_part} Welcome!{company_info} I'm here to answer any questions you might have.",
+        f"Hey{name_part} Good to have you here!{company_info} What would you like to know?",
+        f"Hello{name_part} I'm your virtual assistant.{company_info} Feel free to ask me anything!",
+        f"Hi there{name_part} Thanks for visiting!{company_info} How can I be of help?",
+        f"Hey{name_part} I'm here and ready!{company_info} What can I do for you today?",
+        f"Hello{name_part} Welcome to our chatbot!{company_info} What questions do you have?",
+        f"Hi{name_part} It's a pleasure to meet you!{company_info} How can I assist?",
+        f"Hey there{name_part} I'm excited to help.{company_info} What would you like to learn?",
+        f"Hello{name_part} I'm here to make your day easier.{company_info} What can I help with?",
+        f"Hi{name_part} Welcome aboard!{company_info} Ask me anything you'd like to know.",
+        f"Hey{name_part} Great to chat with you!{company_info} What can I help you discover?",
+        f"Hello{name_part} I'm your helpful assistant.{company_info} What would you like to explore?",
+        f"Hi there{name_part} I'm ready to assist.{company_info} What questions can I answer for you?",
+        f"Hey{name_part} Thanks for reaching out!{company_info} How can I help you today?",
+        f"Hello{name_part} I'm here to provide information.{company_info} What would you like to know?",
+        f"Hi{name_part} Good day!{company_info} What can I do to help you?",
+        f"Hey there{name_part} I'm your friendly helper.{company_info} What can I assist you with?",
+        f"Hello{name_part} Welcome!{company_info} I'm here to answer your questions.",
+    ]
+    return random.choice(greetings)
+
+
+def extract_name_from_introduction(user_input):
+    """Extract name from user input if it's an introduction like 'I am John', 'my name is Sarah', etc."""
+    if not user_input:
+        return None
+    
+    user_lower = user_input.lower().strip()
+    
+    # Patterns to match name introductions - capture name until end of sentence or end of input
+    patterns = [
+        r'^(?:i\s+am|i\'m|im)\s+([^.!?]+?)(?:[.!?]|$)',  # "I am John", "I'm Sarah", "im Mike"
+        r'^(?:my\s+name\s+is|my\s+name\'s|name\s+is|name\'s)\s+([^.!?]+?)(?:[.!?]|$)',  # "my name is John", "name is Sarah"
+        r'^(?:this\s+is|it\'s|its)\s+([^.!?]+?)(?:[.!?]|$)',  # "this is John", "it's Sarah"
+        r'^(?:i\s+go\s+by|call\s+me)\s+([^.!?]+?)(?:[.!?]|$)',  # "I go by John", "call me Sarah"
+        r'^(?:you\s+can\s+call\s+me|just\s+call\s+me)\s+([^.!?]+?)(?:[.!?]|$)',  # "you can call me John"
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, user_lower, re.IGNORECASE)
+        if match:
+            name = match.group(1).strip()
+            # Remove common trailing phrases
+            name = re.sub(r'\s+(here|speaking|talking|and|,).*$', '', name, flags=re.IGNORECASE)
+            # Clean up the name - remove extra punctuation, but keep valid name characters
+            name = re.sub(r'^[^\w]+|[^\w]+$', '', name)  # Remove leading/trailing non-word chars
+            # Remove any remaining trailing commas or conjunctions
+            name = re.sub(r',\s*$', '', name)
+            if name and len(name) > 0 and len(name) <= 50:  # Reasonable name length
+                # Capitalize first letter of each word
+                name = ' '.join(word.capitalize() for word in name.split())
+                return name
+    
+    return None
+
+
+def is_greeting(user_input):
+    """Check if user input is a greeting, handling spelling variations and typos"""
+    if not user_input:
+        return False
+    
+    # Normalize input: lowercase, strip, normalize spaces
+    user_lower = user_input.lower().strip()
+    user_lower = re.sub(r'\s+', ' ', user_lower)  # Normalize spaces
+    
+    # Remove trailing punctuation for matching (but keep for pattern matching)
+    user_clean = re.sub(r'[\.!?]+$', '', user_lower).strip()
+    
+    # Exact matches (without punctuation)
+    exact_greetings = [
+        'hi', 'hello', 'hey', 'greetings', 'good morning', 'good afternoon', 
+        'good evening', 'good night', 'morning', 'afternoon', 'evening',
+        'hi there', 'hello there', 'hey there', 'howdy', 'sup', 'what\'s up',
+        'whats up', 'greet', 'salutations', 'hiya', 'hola', 'bonjour', 'g\'day',
+        'gday', 'thanks', 'thank you', 'thankyou', 'ty', 'thx', 'thank u'
+    ]
+    
+    # Check exact matches first (with and without punctuation)
+    if user_clean in exact_greetings or user_lower in exact_greetings:
+        return True
+    
+    # Check if starts with exact greeting
+    if any(user_clean.startswith(keyword) or user_lower.startswith(keyword) 
+           for keyword in exact_greetings):
+        return True
+    
+    # Pattern matching for common variations and typos (check original input)
+    greeting_patterns = [
+        r'^h+i+[\.!]*\s*$',  # hi, hii, hiii, hi., hi.., etc.
+        r'^h+i+[\.!]{2,}\s*$',  # hi.., hi..., etc.
+        r'^h+e+l+o+[\.!]*\s*$',  # hello, helllo, hello., etc.
+        r'^h+e+y+[\.!]*\s*$',  # hey, heyy, heyyy, hey., etc.
+        r'^h+a+i+[\.!]*\s*$',  # hai, haii, haiii (common misspelling)
+        r'^h+a+i+[\.!]{2,}\s*$',  # haii.., haiii..., etc.
+        r'^h+e+l+[\.!]*\s*$',  # hel, hell (partial hello)
+        r'^h+y+[\.!]*\s*$',  # hy, hyy (partial hey)
+        r'^g+o+o+d+\s+(morning|afternoon|evening|night)',  # good morning variations
+        r'^(morning|afternoon|evening|night)[\.!]*\s*$',  # just time of day
+        r'^h+i+\s+t+h+e+r+e+',  # hi there variations
+        r'^h+e+l+l+o+\s+t+h+e+r+e+',  # hello there variations
+        r'^h+e+y+\s+t+h+e+r+e+',  # hey there variations
+        r'^t+h+a+n+k+s*[\.!]*',  # thanks, thank, thx variations
+        r'^t+h+a+n+k+\s+y+o+u+[\.!]*',  # thank you variations
+        r'^g+r+e+e+t+i+n+g+s*[\.!]*',  # greetings variations
+        r'^h+o+w+d+y+[\.!]*',  # howdy variations
+        r'^w+h+a+t+s*\s+u+p+[\.!]*',  # what's up variations
+        r'^s+u+p+[\.!]*',  # sup variations
+    ]
+    
+    # Check against patterns on original input
+    for pattern in greeting_patterns:
+        if re.match(pattern, user_lower):
+            return True
+    
+    # Check for common misspellings with repeated characters
+    # Remove repeated characters to check base word (hii -> hi, heyy -> hey)
+    base_word = re.sub(r'(.)\1+', r'\1', user_clean)
+    
+    base_greetings = ['hi', 'hey', 'helo', 'hello', 'hai', 'greet', 'hel', 'hy']
+    if any(base_word.startswith(greeting) for greeting in base_greetings):
+        # Additional check: if it's mostly greeting-like (short, starts with h/g/t)
+        if len(user_clean) <= 20:
+            # Check if it starts with greeting-like characters
+            if user_clean and user_clean[0] in 'hgt':
+                # Make sure it's not a full word that's not a greeting
+                if len(user_clean) <= 10 or base_word in base_greetings:
+                    return True
+    
+    # Special case: handle "hi.." with multiple dots
+    if re.match(r'^h+i+\.{2,}', user_lower):
+        return True
+    if re.match(r'^h+a+i+\.{2,}', user_lower):
+        return True
+    
+    return False
 
 
 def clean_text_content(text):
@@ -242,11 +402,17 @@ def retrieve_relevant_chunks(
         is_product_query_retrieval = any(keyword in user_input.lower() for keyword in ['product', 'service', 'offering', 'what do you', 'what does', 'what can', 'offer', 'provide', 'sell', 'solution'])
         
         # Boost chunks based on query type
-        address_keywords = ['address', 'location', 'thrikkakara', 'kakkanad', 'kochi', 'dubai', 'uae', 'office', 'building', 'street', 'postal', '682021']
+        # Generic address keywords that work for any website
+        address_keywords = ['address', 'location', 'office', 'building', 'street', 'avenue', 'road', 'postal', 'zip code', 'zip', 
+                           'city', 'state', 'country', 'contact', 'located', 'headquarters', 'hq', 'suite', 'floor', 'room', 
+                           'p.o. box', 'po box', 'postcode', 'postal code']
         if is_address_query_retrieval:
             for i in range(len(all_chunks)):
                 chunk_text = all_chunks[i][1].lower() if isinstance(all_chunks[i], tuple) else str(all_chunks[i]).lower()
-                if any(keyword in chunk_text for keyword in address_keywords):
+                # Check for address keywords or postal code patterns (5-6 digit numbers)
+                has_address_keyword = any(keyword in chunk_text for keyword in address_keywords)
+                has_postal_code = bool(re.search(r'\b\d{5,6}\b', chunk_text))  # 5-6 digit postal codes
+                if has_address_keyword or has_postal_code:
                     similarities[i] = similarities[i] + 0.2
         
         product_keywords_retrieval = ['product', 'service', 'offering', 'solution', 'app', 'software', 'platform', 'tool', 
@@ -325,8 +491,16 @@ def retrieve_relevant_chunks(
             top_k_indices = prioritized_indices[:top_k * 3]
         
         results = []
+        max_similarity = 0.0
+        
         for i in top_k_indices:
             similarity_score = similarities[i].item()
+            max_similarity = max(max_similarity, similarity_score)
+            
+            # Apply similarity threshold - only include chunks that meet the threshold
+            if similarity_score < similarity_threshold:
+                continue
+            
             chunk = all_chunks[i]
             
             chunk_text = chunk[1] if isinstance(chunk, tuple) else str(chunk)
@@ -339,11 +513,14 @@ def retrieve_relevant_chunks(
             if len(results) >= top_k:
                 break
         
-        # Add more if needed
+        # Add more if needed (still respecting similarity threshold)
         if len(results) < top_k and len(top_k_indices) > len(results):
             for i in top_k_indices[len(results):]:
                 if len(results) >= top_k:
                     break
+                similarity_score = similarities[i].item()
+                if similarity_score < similarity_threshold:
+                    continue
                 chunk = all_chunks[i]
                 chunk_text = chunk[1] if isinstance(chunk, tuple) else str(chunk)
                 cleaned_chunk = clean_text_content(chunk_text)
@@ -351,7 +528,12 @@ def retrieve_relevant_chunks(
                     results.append(chunk)
         
         total_chunks = len(scraped_data_pages) + len(structured_data_texts) + len(custom_data_texts)
-        print(f"Retrieved {len(results)} relevant chunks out of {total_chunks} total")
+        print(f"Retrieved {len(results)} relevant chunks out of {total_chunks} total (max similarity: {max_similarity:.3f}, threshold: {similarity_threshold:.3f})")
+        
+        # If no results meet the threshold, return empty list
+        if len(results) == 0:
+            print(f"⚠️ No chunks found above similarity threshold of {similarity_threshold:.3f} (best match: {max_similarity:.3f})")
+        
         return results
         
     except Exception as e:
@@ -368,11 +550,20 @@ def generate_openai_response(
     openai_model_name,
     is_about_query=False, 
     is_address_query=False, 
-    is_product_query=False
+    is_product_query=False,
+    user_name=""
 ):
     """Generate OpenAI response with context"""
     if not openai_api_key:
         return "OpenAI API key not configured. Please set your OPENAI_API_KEY environment variable.", [], None
+
+    # Check if no relevant chunks were found - return early with no information message
+    if not relevant_chunks or len(relevant_chunks) == 0:
+        # Check if it's a greeting - still respond to greetings even without context
+        if is_greeting(user_input):
+            return get_greeting_response("", user_name), [], None
+        else:
+            return "I don't have information about that topic in the website content. Please ask me something related to the website.", [], None
 
     try:
         client = openai.OpenAI(api_key=openai_api_key)
@@ -398,7 +589,7 @@ def generate_openai_response(
             source_urls = []  # Use list to preserve order - most relevant first
             source_urls_set = set()  # Track duplicates
             
-            is_generic_query = user_input.lower().strip() in ['hi', 'hello', 'hey', 'greetings', 'what can you do', 'help', '?']
+            is_generic_query = is_greeting(user_input) or user_input.lower().strip() in ['what can you do', 'help', '?']
             
             # Set text limits based on query type
             # For person queries, use higher limits to ensure full names are captured
@@ -446,8 +637,17 @@ def generate_openai_response(
                     has_person_content = any(keyword in cleaned_text.lower() for keyword in person_keywords_in_text)
                     
                     if is_address_query:
-                        address_keywords_in_text = ['thrikkakara', 'kakkanad', 'kochi', 'dubai', 'uae', 'address:', '682021', 'sheikh rashid', 'opp. bmc']
-                        if any(keyword in cleaned_text.lower() for keyword in address_keywords_in_text):
+                        # Generic address detection that works for any website
+                        address_keywords_in_text = ['address', 'location', 'office', 'building', 'street', 'avenue', 'road', 
+                                                   'postal', 'zip code', 'zip', 'city', 'state', 'country', 'contact', 
+                                                   'located', 'headquarters', 'hq', 'suite', 'floor', 'room', 'p.o. box', 
+                                                   'po box', 'postcode', 'postal code', 'address:', 'location:']
+                        has_address_keyword = any(keyword in cleaned_text.lower() for keyword in address_keywords_in_text)
+                        has_postal_code = bool(re.search(r'\b\d{5,6}\b', cleaned_text))  # 5-6 digit postal codes
+                        # Check for common address patterns (street numbers, common address words)
+                        has_address_pattern = bool(re.search(r'\d+\s+(street|st|avenue|ave|road|rd|boulevard|blvd|drive|dr|lane|ln)', cleaned_text.lower()))
+                        
+                        if has_address_keyword or has_postal_code or has_address_pattern:
                             context_str += f"Source {valid_chunks_used+1} ({url}) [CONTAINS ADDRESS INFO]:\n{cleaned_text[:3000]}...\n\n"
                         else:
                             context_str += f"Source {valid_chunks_used+1} ({url}):\n{cleaned_text[:text_limit]}...\n\n"
@@ -514,7 +714,7 @@ The user is asking about address or location. Look carefully through the website
 - Postal codes
 - Any location information
 
-If multiple locations exist (e.g., India office, UAE office), mention all of them using first person. Say "We have offices at..." or "Our offices are located at..." NOT "They have offices at..." or "They also have...". Include all address details you find, even if incomplete.
+If multiple locations exist, mention all of them using first person. Say "We have offices at..." or "Our offices are located at..." NOT "They have offices at..." or "They also have...". Include all address details you find, even if incomplete.
 """
         elif is_about_query:
             person_note = ""
@@ -545,7 +745,7 @@ The user is asking about products, services, or offerings. Look for:
 List ALL products and services you find. Be specific and detailed with names, descriptions, and features. Prioritize product/service information over contact or policy pages.
 """
         
-        is_greeting = user_input.lower().strip() in ['hi', 'hello', 'hey', 'greetings', 'good morning', 'good afternoon', 'good evening']
+        is_greeting_query = is_greeting(user_input)
         company_info = ""
         
         if relevant_chunks:
@@ -575,7 +775,7 @@ CRITICAL RULES:
 6. **Be comprehensive** - Include all relevant details from the context in your answer.
 7. **IMPORTANT: For person names** - Always provide the COMPLETE and FULL name. Never truncate, shorten, or abbreviate names. If you see a full name in the context, use the entire name exactly as it appears.
 8. **Ignore error messages** - Skip any JavaScript errors, HTML errors, or placeholder text in the context.
-9. **If asked a greeting** (hi, hello), respond warmly and offer to help{company_info}
+9. **If asked a greeting** (hi, hello, hey, good morning, etc.), respond warmly and offer to help{company_info}. Use a friendly, conversational tone.
 
 WEBSITE CONTENT:
 {context_str}
@@ -612,8 +812,8 @@ Answer the question naturally and conversationally, using ONLY the information f
         # Fallback handling
         no_info_phrases = ["i don't have", "i do not have", "i cannot find", "no information", "don't have that information"]
         if any(phrase in answer.lower() for phrase in no_info_phrases) and relevant_chunks:
-            if is_greeting:
-                answer = f"Hello! I'm here to help you.{company_info} What would you like to know?"
+            if is_greeting_query:
+                answer = get_greeting_response(company_info, user_name)
             else:
                 answer_parts = []
                 for url, text in relevant_chunks[:5]:

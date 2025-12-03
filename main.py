@@ -37,7 +37,8 @@ app_state = {
     "scraping_in_progress": False,
     "scraping_complete": False,
     "target_website": TARGET_WEBSITE,
-    "should_scrape": False
+    "should_scrape": False,
+    "user_name": ""  # Store user's name for personalized greetings
 }
 
 # State setters - Now updating app_state directly
