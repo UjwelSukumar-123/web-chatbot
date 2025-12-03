@@ -90,15 +90,15 @@ def run_scraper(target_website, embedder, max_pages=200):
         scraped_data_embeddings = None
         if embedder:
             texts = [text for _, text in url_text_pairs]
-            print(f"🔄 Creating embeddings for {len(texts)} pages...")
+            print(f"Creating embeddings for {len(texts)} pages...")
             scraped_data_embeddings = embedder.encode(texts, convert_to_tensor=True)
             
             # Save embeddings and metadata
             save_embeddings_data(url_text_pairs, scraped_data_embeddings)
             
-            print(f"✅ Created and saved embeddings for {len(url_text_pairs)} pages")
+            print(f"Created and saved embeddings for {len(url_text_pairs)} pages")
         else:
-            print("⚠️ Embedder not available, cannot create embeddings")
+            print("Embedder not available, cannot create embeddings")
         
         # Process structured data
         structured_data_texts = []
@@ -178,7 +178,7 @@ def run_scraper(target_website, embedder, max_pages=200):
         return url_text_pairs, scraped_data_embeddings, structured_data_texts, structured_data_embeddings, structured_data_sources
         
     except Exception as e:
-        print(f"❌ Error during scraping: {e}")
+        print(f"Error during scraping: {e}")
         import traceback
         traceback.print_exc()
         return [], None, [], None, []

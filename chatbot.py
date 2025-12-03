@@ -143,9 +143,9 @@ def retrieve_relevant_chunks(
         all_chunks.extend(scraped_data_pages)
         all_embeddings.append(scraped_data_embeddings)
         all_sources.extend(['scraped'] * len(scraped_data_pages))
-        print(f"📚 Added {len(scraped_data_pages)} scraped pages to retrieval pool")
+        print(f"Added {len(scraped_data_pages)} scraped pages to retrieval pool")
     else:
-        print(f"⚠️ Scraped data not available: pages={len(scraped_data_pages)}, embeddings={'None' if scraped_data_embeddings is None else 'empty'}")
+        print(f"Scraped data not available: pages={len(scraped_data_pages)}, embeddings={'None' if scraped_data_embeddings is None else 'empty'}")
     
     # Add structured data
     has_structured_embeddings = False
@@ -163,7 +163,7 @@ def retrieve_relevant_chunks(
         all_chunks.extend([(f"Structured: {source['url']}", text) for text, source in zip(structured_data_texts, structured_data_sources)])
         all_embeddings.append(structured_data_embeddings)
         all_sources.extend(['structured'] * len(structured_data_texts))
-        print(f"📋 Added {len(structured_data_texts)} structured entries to retrieval pool")
+        print(f"Added {len(structured_data_texts)} structured entries to retrieval pool")
     
     # Add custom data
     has_custom_embeddings = False
@@ -182,12 +182,12 @@ def retrieve_relevant_chunks(
         all_chunks.extend(custom_chunks)
         all_embeddings.append(custom_data_embeddings)
         all_sources.extend(['custom'] * len(custom_data_texts))
-        print(f"📝 Added {len(custom_data_texts)} custom entries to retrieval pool")
+        print(f"Added {len(custom_data_texts)} custom entries to retrieval pool")
         for i, (title, text) in enumerate(custom_chunks):
             print(f"   Custom entry {i+1}: {title} (content preview: {text[:50]}...)")
     
     if not all_chunks:
-        print("❌ No data available for retrieval - check if embeddings exist or run scraping first")
+        print("No data available for retrieval - check if embeddings exist or run scraping first")
         return []
 
     try:
@@ -388,14 +388,23 @@ def generate_openai_response(
                           'background', 'what does', 'details', 'about us', 'story', 'history', 'what are']
         is_about_query = any(keyword in user_input.lower() for keyword in about_keywords)
         
+        # Detect person/name queries (CEO, founder, team member, etc.)
+        person_keywords = ['who is', 'ceo', 'founder', 'co-founder', 'president', 'director', 'manager', 
+                          'team member', 'employee', 'staff', 'leader', 'head of', 'name of', 'person']
+        is_person_query = any(keyword in user_input.lower() for keyword in person_keywords)
+        
         if relevant_chunks:
             context_str = "\n\n--- Context ---\n"
-            source_urls = set()
+            source_urls = []  # Use list to preserve order - most relevant first
+            source_urls_set = set()  # Track duplicates
             
             is_generic_query = user_input.lower().strip() in ['hi', 'hello', 'hey', 'greetings', 'what can you do', 'help', '?']
             
             # Set text limits based on query type
-            if is_about_query:
+            # For person queries, use higher limits to ensure full names are captured
+            if is_person_query:
+                text_limit = 8000  # Higher limit for person queries to capture full names
+            elif is_about_query:
                 text_limit = 5000
             elif is_address_query:
                 text_limit = 3000
@@ -414,15 +423,28 @@ def generate_openai_response(
                     continue
                 
                 if url.startswith('Custom:'):
-                    context_str += f"Custom Data {valid_chunks_used+1} ({url}):\n{cleaned_text[:text_limit]}...\n\n"
-                    source_urls.add(url)
+                    # For person queries, use full text or higher limit
+                    if is_person_query:
+                        context_str += f"Custom Data {valid_chunks_used+1} ({url}):\n{cleaned_text[:8000]}...\n\n"
+                    else:
+                        context_str += f"Custom Data {valid_chunks_used+1} ({url}):\n{cleaned_text[:text_limit]}...\n\n"
+                    if url not in source_urls_set:
+                        source_urls.append(url)
+                        source_urls_set.add(url)
                     valid_chunks_used += 1
                 elif url.startswith('Structured:'):
                     context_str += f"Structured Data {valid_chunks_used+1} ({url}):\n{cleaned_text}\n\n"
-                    source_urls.add(url)
+                    if url not in source_urls_set:
+                        source_urls.append(url)
+                        source_urls_set.add(url)
                     valid_chunks_used += 1
                 else:
                     # Handle different query types with appropriate context
+                    # Check if text contains team/person keywords and increase limit
+                    person_keywords_in_text = ['ceo', 'founder', 'co-founder', 'president', 'director', 'manager', 
+                                              'team', 'member', 'employee', 'staff', 'leader', 'head', 'name']
+                    has_person_content = any(keyword in cleaned_text.lower() for keyword in person_keywords_in_text)
+                    
                     if is_address_query:
                         address_keywords_in_text = ['thrikkakara', 'kakkanad', 'kochi', 'dubai', 'uae', 'address:', '682021', 'sheikh rashid', 'opp. bmc']
                         if any(keyword in cleaned_text.lower() for keyword in address_keywords_in_text):
@@ -433,9 +455,12 @@ def generate_openai_response(
                         about_keywords_in_text = ['about', 'mission', 'vision', 'history', 'story', 'culture', 
                                                   'values', 'team', 'who we are', 'what we do', 'overview', 'background', 'introduction']
                         if any(keyword in cleaned_text.lower() for keyword in about_keywords_in_text):
-                            context_str += f"Source {valid_chunks_used+1} ({url}) [ABOUT INFO - HIGH PRIORITY]:\n{cleaned_text[:6000]}...\n\n"
+                            # For person queries or person content, use even higher limit
+                            limit = 10000 if (is_person_query or has_person_content) else 6000
+                            context_str += f"Source {valid_chunks_used+1} ({url}) [ABOUT INFO - HIGH PRIORITY]:\n{cleaned_text[:limit]}...\n\n"
                         else:
-                            context_str += f"Source {valid_chunks_used+1} ({url}):\n{cleaned_text[:text_limit]}...\n\n"
+                            limit = 8000 if (is_person_query or has_person_content) else text_limit
+                            context_str += f"Source {valid_chunks_used+1} ({url}):\n{cleaned_text[:limit]}...\n\n"
                     elif is_product_query:
                         product_keywords_in_text = ['product', 'service', 'offering', 'solution', 'app', 'software', 'platform', 'tool',
                                                     'what we do', 'our services', 'our products', 'services we offer', 'what we offer',
@@ -452,8 +477,12 @@ def generate_openai_response(
                         else:
                             context_str += f"Source {valid_chunks_used+1} ({url}):\n{cleaned_text[:text_limit]}...\n\n"
                     else:
-                        context_str += f"Source {valid_chunks_used+1} ({url}):\n{cleaned_text[:text_limit]}...\n\n"
-                    source_urls.add(url)
+                        # For person queries or person content, use higher limit
+                        limit = 8000 if (is_person_query or has_person_content) else text_limit
+                        context_str += f"Source {valid_chunks_used+1} ({url}):\n{cleaned_text[:limit]}...\n\n"
+                    if url not in source_urls_set:
+                        source_urls.append(url)
+                        source_urls_set.add(url)
                     valid_chunks_used += 1
                 
                 max_chunks = 15 if is_about_query else 12 if is_product_query else 10 if is_address_query else 8
@@ -461,9 +490,19 @@ def generate_openai_response(
                     break
             
             context_str += "--- End Context ---"
+            # Limit source URLs to only the most relevant ones
+            # For most queries, return only the top 1-2 sources (most relevant)
+            # Only return more if it's a complex query that might legitimately need multiple sources
+            if is_about_query and len(source_urls) > 2:
+                # About queries might need 2 sources max
+                source_urls = source_urls[:2]
+            elif len(source_urls) > 1:
+                # For most other queries, return only the top 1 source (most relevant)
+                source_urls = source_urls[:1]
+            # If there's only 1 or 0 sources, keep as is
         else:
             context_str = "No relevant content found."
-            source_urls = set()
+            source_urls = []
         
         # Build prompt
         special_instruction = ""
@@ -478,7 +517,11 @@ The user is asking about address or location. Look carefully through the website
 If multiple locations exist (e.g., India office, UAE office), mention all of them using first person. Say "We have offices at..." or "Our offices are located at..." NOT "They have offices at..." or "They also have...". Include all address details you find, even if incomplete.
 """
         elif is_about_query:
-            special_instruction = """
+            person_note = ""
+            if is_person_query:
+                person_note = "\nIMPORTANT: If the user is asking about a person (CEO, founder, team member, etc.), make sure to provide the COMPLETE and FULL name. Do not truncate or shorten names. Include the person's full name exactly as it appears in the context."
+            
+            special_instruction = f"""
 The user is asking about the website/organization/topic. Provide a comprehensive description including:
 - What it is about or what it does
 - Mission, vision, values (if applicable)
@@ -487,6 +530,7 @@ The user is asking about the website/organization/topic. Provide a comprehensive
 - Key information, features, or highlights
 - Achievements and milestones (if applicable)
 - Any other relevant details
+{person_note}
 
 Focus on providing comprehensive information, not just contact details. Be detailed and comprehensive.
 """
@@ -529,8 +573,9 @@ CRITICAL RULES:
 4. **NEVER use phrases like**: "Based on the context", "According to the information provided", "From the context above", etc.
 5. **Just answer directly** - State facts naturally as if you know them, without explaining where you got them from.
 6. **Be comprehensive** - Include all relevant details from the context in your answer.
-7. **Ignore error messages** - Skip any JavaScript errors, HTML errors, or placeholder text in the context.
-8. **If asked a greeting** (hi, hello), respond warmly and offer to help{company_info}
+7. **IMPORTANT: For person names** - Always provide the COMPLETE and FULL name. Never truncate, shorten, or abbreviate names. If you see a full name in the context, use the entire name exactly as it appears.
+8. **Ignore error messages** - Skip any JavaScript errors, HTML errors, or placeholder text in the context.
+9. **If asked a greeting** (hi, hello), respond warmly and offer to help{company_info}
 
 WEBSITE CONTENT:
 {context_str}
@@ -579,7 +624,8 @@ Answer the question naturally and conversationally, using ONLY the information f
                 if answer_parts:
                     answer = "\n\n".join(answer_parts)
         
-        return answer, list(source_urls), token_usage
+        # source_urls is already a list, return it directly
+        return answer, source_urls, token_usage
         
     except Exception as e:
         import traceback
