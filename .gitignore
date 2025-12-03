@@ -125,3 +125,6 @@ logs/
 *.bak
 *.backup
 
+# User data (sensitive)
+users.json
+

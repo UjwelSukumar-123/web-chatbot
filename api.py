@@ -3,10 +3,12 @@ API Module
 Contains all FastAPI routes and endpoints
 """
 
-from fastapi import FastAPI, Form
+from fastapi import FastAPI, Form, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel
+from fastapi.security import HTTPBearer
+from pydantic import BaseModel, EmailStr
 from typing import Optional
+from datetime import timedelta
 import os
 import openai
 
@@ -28,6 +30,15 @@ from custom_data import (
 )
 from data_manager import load_embeddings_data, load_structured_embeddings_data
 from scraper import run_scraper as run_scraper_function
+from auth import (
+    register_user,
+    authenticate_user,
+    create_access_token,
+    get_current_user,
+    get_user_by_email,
+    update_user_website,
+    ACCESS_TOKEN_EXPIRE_MINUTES
+)
 
 # Pydantic Models
 class QuestionRequest(BaseModel):
@@ -45,6 +56,16 @@ class CustomDataRequest(BaseModel):
 
 class RemoveCustomDataRequest(BaseModel):
     index: int
+
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str
+    organization_name: Optional[str] = ""
+    full_name: Optional[str] = ""
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
 
 
 def create_app(
@@ -68,6 +89,165 @@ def create_app(
     async def index():
         with open('templates/index.html', 'r', encoding='utf-8') as f:
             return HTMLResponse(content=f.read())
+    
+    # Authentication Endpoints
+    @app.post('/register')
+    async def register(request_data: RegisterRequest):
+        """
+        Register a new user account
+        
+        Required fields:
+        - email: User email address (used as username)
+        - password: User password (minimum 8 characters)
+        
+        Optional fields:
+        - organization_name: Name of the organization/company
+        - full_name: User's full name
+        
+        Returns:
+        - User information and API key for plugin integration
+        """
+        try:
+            user = register_user(
+                email=request_data.email,
+                password=request_data.password,
+                organization_name=request_data.organization_name or "",
+                full_name=request_data.full_name or ""
+            )
+            
+            return JSONResponse(
+                status_code=status.HTTP_201_CREATED,
+                content={
+                    "status": "success",
+                    "message": "User registered successfully",
+                    "user": user,
+                    "note": "Save your API key securely - you'll need it for plugin integration"
+                }
+            )
+        except HTTPException as e:
+            return JSONResponse(
+                status_code=e.status_code,
+                content={"status": "error", "message": e.detail}
+            )
+        except Exception as e:
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"status": "error", "message": f"Registration failed: {str(e)}"}
+            )
+    
+    @app.post('/login')
+    async def login(request_data: LoginRequest):
+        """
+        Login and get JWT access token
+        
+        Required fields:
+        - email: User email address
+        - password: User password
+        
+        Returns:
+        - JWT access token (valid for 7 days)
+        - User information
+        - Token type and expiration time
+        """
+        try:
+            user = authenticate_user(request_data.email, request_data.password)
+            
+            if not user:
+                return JSONResponse(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    content={
+                        "status": "error",
+                        "message": "Invalid email or password"
+                    }
+                )
+            
+            # Create access token
+            access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+            access_token = create_access_token(
+                data={"sub": user["email"]},
+                expires_delta=access_token_expires
+            )
+            
+            return JSONResponse(
+                content={
+                    "status": "success",
+                    "message": "Login successful",
+                    "access_token": access_token,
+                    "token_type": "bearer",
+                    "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,  # in seconds
+                    "user": user
+                }
+            )
+        except Exception as e:
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"status": "error", "message": f"Login failed: {str(e)}"}
+            )
+    
+    @app.get('/me')
+    async def get_current_user_info(current_user: dict = Depends(get_current_user)):
+        """
+        Get current authenticated user information
+        
+        Requires: Bearer token in Authorization header
+        
+        Returns:
+        - Current user information
+        """
+        return JSONResponse(
+            content={
+                "status": "success",
+                "user": current_user
+            }
+        )
+    
+    @app.post('/update_website')
+    async def update_user_website_route(
+        website: str,
+        current_user: dict = Depends(get_current_user)
+    ):
+        """
+        Update user's website URL
+        
+        Requires: Bearer token in Authorization header
+        
+        Parameters:
+        - website: Website URL to associate with this user
+        
+        Returns:
+        - Updated user information
+        """
+        try:
+            if not website or not website.strip():
+                return JSONResponse(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    content={"status": "error", "message": "Website URL is required"}
+                )
+            
+            # Ensure website has http/https
+            website_url = website.strip()
+            if not website_url.startswith(('http://', 'https://')):
+                website_url = 'https://' + website_url
+            
+            updated_user = update_user_website(current_user["email"], website_url)
+            
+            return JSONResponse(
+                content={
+                    "status": "success",
+                    "message": "Website URL updated successfully",
+                    "user": updated_user
+                }
+            )
+        except HTTPException as e:
+            return JSONResponse(
+                status_code=e.status_code,
+                content={"status": "error", "message": e.detail}
+            )
+        except Exception as e:
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"status": "error", "message": f"Failed to update website: {str(e)}"}
+            )
     
     @app.post('/ask')
     async def ask(question: str = Form(...), chatbot_type: str = Form("openai")):
@@ -361,7 +541,9 @@ def create_app(
                 
                 # Update global state
                 custom_data_texts_new, custom_data_sources_new = get_custom_data()
-                set_custom_data(custom_data_texts_new, get_custom_data_embeddings(), custom_data_sources_new)
+                set_state("custom_data_texts", custom_data_texts_new)
+                set_state("custom_data_embeddings", get_custom_data_embeddings())
+                set_state("custom_data_sources", custom_data_sources_new)
                 
                 return JSONResponse(
                     status_code=200,

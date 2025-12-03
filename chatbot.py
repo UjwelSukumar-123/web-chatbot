@@ -17,6 +17,65 @@ try:
 except ImportError:
     TORCH_AVAILABLE = False
 
+# Try to import tiktoken for accurate token counting
+try:
+    import tiktoken
+    TIKTOKEN_AVAILABLE = True
+except ImportError:
+    TIKTOKEN_AVAILABLE = False
+
+
+def estimate_tokens(text: str, model_name: str = "gpt-3.5-turbo") -> int:
+    """
+    Estimate the number of tokens in a text string.
+    Uses tiktoken if available for accuracy, otherwise uses a simple approximation.
+    """
+    if TIKTOKEN_AVAILABLE:
+        try:
+            # Try to get encoding for the model
+            encoding_name = "cl100k_base"  # Default for gpt-3.5-turbo and gpt-4
+            if "gpt-4" in model_name.lower():
+                encoding_name = "cl100k_base"
+            elif "gpt-3.5" in model_name.lower():
+                encoding_name = "cl100k_base"
+            
+            encoding = tiktoken.get_encoding(encoding_name)
+            return len(encoding.encode(text))
+        except Exception:
+            # Fallback to approximation
+            pass
+    
+    # Simple approximation: ~4 characters per token (conservative estimate)
+    return len(text) // 4
+
+
+def get_model_context_limit(model_name: str) -> int:
+    """
+    Get the maximum context length for a given OpenAI model.
+    Returns a conservative limit (leaving some buffer for system messages and response).
+    """
+    model_lower = model_name.lower()
+    
+    # Model context limits (leaving ~2000 token buffer for system message, prompt template, and response)
+    if "gpt-4-turbo" in model_lower or "gpt-4-1106" in model_lower or "gpt-4o" in model_lower:
+        return 120000  # 128k - 8k buffer
+    elif "gpt-4" in model_lower:
+        if "32k" in model_lower:
+            return 30000  # 32k - 2k buffer
+        elif "16k" in model_lower:
+            return 14000  # 16k - 2k buffer
+        else:
+            return 6000  # 8k - 2k buffer
+    elif "gpt-3.5-turbo" in model_lower:
+        if "16k" in model_lower:
+            return 14000  # 16k - 2k buffer (actual limit is 16385, so 14k is safe)
+        else:
+            return 12000  # 4k - 2k buffer (conservative for older models)
+    else:
+        # Default conservative limit for unknown models (assume 16k model based on error message)
+        # The error showed 16385 limit, so default to 14k to be safe
+        return 14000
+
 
 def get_greeting_response(company_info="", user_name=""):
     """Return a random greeting response with variety, optionally personalized with user name"""
@@ -585,6 +644,49 @@ def generate_openai_response(
         is_person_query = any(keyword in user_input.lower() for keyword in person_keywords)
         
         if relevant_chunks:
+            # Get model context limit
+            context_limit = get_model_context_limit(openai_model_name)
+            
+            # Estimate tokens for system message
+            system_message = "You are a friendly chatbot for a website. You answer questions naturally and conversationally, using ONLY the information provided. Always use first person (we, our, us) to represent the website/organization - never use third person (they, their, them). Never mention sources, data, or context - just respond naturally as a helpful chatbot would. Never make up information that isn't in the provided context."
+            
+            # Estimate tokens for base prompt template (without context and special instructions)
+            base_prompt_template = """You are a helpful chatbot for this website. Answer the user's question naturally and conversationally, as if you're a friendly representative of the website.
+
+CRITICAL RULES:
+1. **ONLY use information from the context below** - DO NOT make up, guess, or hallucinate any information. If the information isn't in the context, you cannot provide it.
+2. **Respond naturally** - Write as a friendly chatbot would, not as an AI assistant explaining its process.
+3. **ALWAYS use FIRST PERSON** - Use "we", "our", "us" instead of "they", "their", "them". You are representing the website/organization directly, so speak as if you are part of it.
+4. **NEVER use phrases like**: "Based on the context", "According to the information provided", "From the context above", etc.
+5. **Just answer directly** - State facts naturally as if you know them, without explaining where you got them from.
+6. **Be comprehensive** - Include all relevant details from the context in your answer.
+7. **IMPORTANT: For person names** - Always provide the COMPLETE and FULL name. Never truncate, shorten, or abbreviate names. If you see a full name in the context, use the entire name exactly as it appears.
+8. **Ignore error messages** - Skip any JavaScript errors, HTML errors, or placeholder text in the context.
+9. **If asked a greeting** (hi, hello, hey, good morning, etc.), respond warmly and offer to help. Use a friendly, conversational tone.
+
+WEBSITE CONTENT:
+{context_placeholder}
+
+User's question: {user_input}
+
+Answer the question naturally and conversationally, using ONLY the information from the website content above. Use first person (we, our, us) to represent the website/organization. Do not mention sources, data, or context - just provide a helpful, natural response:"""
+            
+            # Estimate special instruction size (will be calculated later, use average for now)
+            avg_special_instruction_tokens = 150
+            
+            # Estimate tokens for fixed parts (system message + base prompt template + user input + special instruction + response buffer)
+            fixed_tokens = estimate_tokens(system_message, openai_model_name) + \
+                          estimate_tokens(base_prompt_template.replace("{context_placeholder}", ""), openai_model_name) + \
+                          estimate_tokens(user_input, openai_model_name) + \
+                          avg_special_instruction_tokens + \
+                          2000  # Buffer for response
+            
+            # Available tokens for context
+            available_tokens = context_limit - fixed_tokens
+            
+            # Safety margin: use only 90% of available tokens to avoid edge cases
+            max_context_tokens = int(available_tokens * 0.9)
+            
             context_str = "\n\n--- Context ---\n"
             source_urls = []  # Use list to preserve order - most relevant first
             source_urls_set = set()  # Track duplicates
@@ -607,34 +709,65 @@ def generate_openai_response(
                 text_limit = 1500
             
             valid_chunks_used = 0
+            current_context_tokens = estimate_tokens(context_str, openai_model_name)
+            
+            def add_chunk_to_context(chunk_text, chunk_url, chunk_type="Source"):
+                """Helper function to add a chunk and check token limits"""
+                nonlocal context_str, current_context_tokens, valid_chunks_used, source_urls, source_urls_set
+                
+                # Estimate tokens for this chunk
+                chunk_str = f"{chunk_type} {valid_chunks_used+1} ({chunk_url}):\n{chunk_text}...\n\n"
+                chunk_tokens = estimate_tokens(chunk_str, openai_model_name)
+                
+                # Check if adding this chunk would exceed the limit
+                if current_context_tokens + chunk_tokens > max_context_tokens:
+                    return False  # Can't add this chunk
+                
+                # Add the chunk
+                context_str += chunk_str
+                current_context_tokens += chunk_tokens
+                
+                if chunk_url not in source_urls_set:
+                    source_urls.append(chunk_url)
+                    source_urls_set.add(chunk_url)
+                valid_chunks_used += 1
+                return True
+            
             for i, (url, text) in enumerate(relevant_chunks):
                 cleaned_text = clean_text_content(text)
                 
                 if not is_valid_content(cleaned_text, min_length=30):
                     continue
                 
+                # Check if we've already used too many tokens
+                if current_context_tokens >= max_context_tokens:
+                    break
+                
                 if url.startswith('Custom:'):
                     # For person queries, use full text or higher limit
                     if is_person_query:
-                        context_str += f"Custom Data {valid_chunks_used+1} ({url}):\n{cleaned_text[:8000]}...\n\n"
+                        chunk_text = cleaned_text[:8000]
                     else:
-                        context_str += f"Custom Data {valid_chunks_used+1} ({url}):\n{cleaned_text[:text_limit]}...\n\n"
-                    if url not in source_urls_set:
-                        source_urls.append(url)
-                        source_urls_set.add(url)
-                    valid_chunks_used += 1
+                        chunk_text = cleaned_text[:text_limit]
+                    
+                    if not add_chunk_to_context(chunk_text, url, "Custom Data"):
+                        # Try with reduced size
+                        reduced_limit = min(text_limit, 2000)
+                        chunk_text = cleaned_text[:reduced_limit]
+                        if not add_chunk_to_context(chunk_text, url, "Custom Data"):
+                            break
                 elif url.startswith('Structured:'):
-                    context_str += f"Structured Data {valid_chunks_used+1} ({url}):\n{cleaned_text}\n\n"
-                    if url not in source_urls_set:
-                        source_urls.append(url)
-                        source_urls_set.add(url)
-                    valid_chunks_used += 1
+                    if not add_chunk_to_context(cleaned_text, url, "Structured Data"):
+                        break
                 else:
                     # Handle different query types with appropriate context
                     # Check if text contains team/person keywords and increase limit
                     person_keywords_in_text = ['ceo', 'founder', 'co-founder', 'president', 'director', 'manager', 
                                               'team', 'member', 'employee', 'staff', 'leader', 'head', 'name']
                     has_person_content = any(keyword in cleaned_text.lower() for keyword in person_keywords_in_text)
+                    
+                    chunk_text = None
+                    chunk_label = "Source"
                     
                     if is_address_query:
                         # Generic address detection that works for any website
@@ -648,19 +781,21 @@ def generate_openai_response(
                         has_address_pattern = bool(re.search(r'\d+\s+(street|st|avenue|ave|road|rd|boulevard|blvd|drive|dr|lane|ln)', cleaned_text.lower()))
                         
                         if has_address_keyword or has_postal_code or has_address_pattern:
-                            context_str += f"Source {valid_chunks_used+1} ({url}) [CONTAINS ADDRESS INFO]:\n{cleaned_text[:3000]}...\n\n"
+                            chunk_text = cleaned_text[:3000]
+                            chunk_label = "Source [CONTAINS ADDRESS INFO]"
                         else:
-                            context_str += f"Source {valid_chunks_used+1} ({url}):\n{cleaned_text[:text_limit]}...\n\n"
+                            chunk_text = cleaned_text[:text_limit]
                     elif is_about_query:
                         about_keywords_in_text = ['about', 'mission', 'vision', 'history', 'story', 'culture', 
                                                   'values', 'team', 'who we are', 'what we do', 'overview', 'background', 'introduction']
                         if any(keyword in cleaned_text.lower() for keyword in about_keywords_in_text):
                             # For person queries or person content, use even higher limit
                             limit = 10000 if (is_person_query or has_person_content) else 6000
-                            context_str += f"Source {valid_chunks_used+1} ({url}) [ABOUT INFO - HIGH PRIORITY]:\n{cleaned_text[:limit]}...\n\n"
+                            chunk_text = cleaned_text[:limit]
+                            chunk_label = "Source [ABOUT INFO - HIGH PRIORITY]"
                         else:
                             limit = 8000 if (is_person_query or has_person_content) else text_limit
-                            context_str += f"Source {valid_chunks_used+1} ({url}):\n{cleaned_text[:limit]}...\n\n"
+                            chunk_text = cleaned_text[:limit]
                     elif is_product_query:
                         product_keywords_in_text = ['product', 'service', 'offering', 'solution', 'app', 'software', 'platform', 'tool',
                                                     'what we do', 'our services', 'our products', 'services we offer', 'what we offer',
@@ -671,20 +806,28 @@ def generate_openai_response(
                         has_product_content = any(keyword in cleaned_text.lower() for keyword in product_keywords_in_text)
                         
                         if is_product_page:
-                            context_str += f"Source {valid_chunks_used+1} ({url}) [PRODUCT/SERVICE PAGE - HIGHEST PRIORITY]:\n{cleaned_text[:5000]}...\n\n"
+                            chunk_text = cleaned_text[:5000]
+                            chunk_label = "Source [PRODUCT/SERVICE PAGE - HIGHEST PRIORITY]"
                         elif has_product_content:
-                            context_str += f"Source {valid_chunks_used+1} ({url}) [CONTAINS PRODUCT INFO]:\n{cleaned_text[:4000]}...\n\n"
+                            chunk_text = cleaned_text[:4000]
+                            chunk_label = "Source [CONTAINS PRODUCT INFO]"
                         else:
-                            context_str += f"Source {valid_chunks_used+1} ({url}):\n{cleaned_text[:text_limit]}...\n\n"
+                            chunk_text = cleaned_text[:text_limit]
                     else:
                         # For person queries or person content, use higher limit
                         limit = 8000 if (is_person_query or has_person_content) else text_limit
-                        context_str += f"Source {valid_chunks_used+1} ({url}):\n{cleaned_text[:limit]}...\n\n"
-                    if url not in source_urls_set:
-                        source_urls.append(url)
-                        source_urls_set.add(url)
-                    valid_chunks_used += 1
+                        chunk_text = cleaned_text[:limit]
+                    
+                    # Try to add the chunk, with fallback to smaller size if needed
+                    if chunk_text:
+                        if not add_chunk_to_context(chunk_text, url, chunk_label):
+                            # Try with reduced size
+                            reduced_limit = min(len(chunk_text), 2000)
+                            chunk_text = cleaned_text[:reduced_limit]
+                            if not add_chunk_to_context(chunk_text, url, chunk_label):
+                                break
                 
+                # Also check max_chunks limit (but token limit takes priority)
                 max_chunks = 15 if is_about_query else 12 if is_product_query else 10 if is_address_query else 8
                 if valid_chunks_used >= max_chunks:
                     break
