@@ -342,6 +342,13 @@ def retrieve_relevant_chunks(
         print("❌ Sentence transformer not available")
         return []
 
+    # Normalize potentially missing inputs so downstream len() checks are safe
+    scraped_data_pages = scraped_data_pages or []
+    structured_data_texts = structured_data_texts or []
+    structured_data_sources = structured_data_sources or []
+    custom_data_texts = custom_data_texts or []
+    custom_data_sources = custom_data_sources or []
+
     all_chunks = []
     all_embeddings = []
     all_sources = []

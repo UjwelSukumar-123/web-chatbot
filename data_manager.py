@@ -18,27 +18,55 @@ except ImportError:
 
 # Paths
 DATA_DIR = "data"
+
+def get_client_data_dir(user_id: Optional[str] = None) -> str:
+    """Get the data directory for a specific client/user"""
+    if user_id:
+        return os.path.join(DATA_DIR, f"client_{user_id}")
+    return DATA_DIR
+
+def get_client_file_paths(user_id: Optional[str] = None):
+    """Get file paths for a specific client"""
+    client_dir = get_client_data_dir(user_id)
+    return {
+        "metadata_file": os.path.join(client_dir, "embeddings_metadata.pkl"),
+        "embeddings_file": os.path.join(client_dir, "embeddings.npy"),
+        "structured_metadata_file": os.path.join(client_dir, "structured_metadata.pkl"),
+        "structured_embeddings_file": os.path.join(client_dir, "structured_embeddings.npy")
+    }
+
+# Default paths (for backward compatibility)
 SCRAPED_METADATA_FILE = os.path.join(DATA_DIR, "embeddings_metadata.pkl")
 SCRAPED_EMBEDDINGS_FILE = os.path.join(DATA_DIR, "embeddings.npy")
 STRUCTURED_METADATA_FILE = os.path.join(DATA_DIR, "structured_metadata.pkl")
 STRUCTURED_EMBEDDINGS_FILE = os.path.join(DATA_DIR, "structured_embeddings.npy")
 
 
-def save_embeddings_data(pages_data, embeddings, metadata_file=None, embeddings_file=None):
+def save_embeddings_data(pages_data, embeddings, metadata_file=None, embeddings_file=None, user_id=None):
     """Save scraped data as embeddings and metadata"""
-    if metadata_file is None:
-        metadata_file = SCRAPED_METADATA_FILE
-    if embeddings_file is None:
-        embeddings_file = SCRAPED_EMBEDDINGS_FILE
+    if metadata_file is None or embeddings_file is None:
+        # Use client-specific paths if user_id is provided
+        if user_id:
+            paths = get_client_file_paths(user_id)
+            if metadata_file is None:
+                metadata_file = paths["metadata_file"]
+            if embeddings_file is None:
+                embeddings_file = paths["embeddings_file"]
+        else:
+            if metadata_file is None:
+                metadata_file = SCRAPED_METADATA_FILE
+            if embeddings_file is None:
+                embeddings_file = SCRAPED_EMBEDDINGS_FILE
     
     # Ensure directory exists
-    os.makedirs(DATA_DIR, exist_ok=True)
+    target_dir = os.path.dirname(metadata_file)
+    os.makedirs(target_dir, exist_ok=True)
     
     try:
         # Save metadata (URLs and texts) as pickle
         with open(metadata_file, "wb") as f:
             pickle.dump(pages_data, f)
-        print(f"✅ Saved metadata to {metadata_file} ({len(pages_data)} pages)")
+        print(f"Saved metadata to {metadata_file} ({len(pages_data)} pages)")
         
         # Save embeddings as numpy array
         if embeddings is not None:
@@ -51,34 +79,43 @@ def save_embeddings_data(pages_data, embeddings, metadata_file=None, embeddings_
                 embeddings_np = np.array(embeddings)
             
             np.save(embeddings_file, embeddings_np)
-            print(f"✅ Saved embeddings to {embeddings_file} (shape: {embeddings_np.shape})")
+            print(f"Saved embeddings to {embeddings_file} (shape: {embeddings_np.shape})")
         
         return True
     except Exception as e:
-        print(f"❌ Error saving embeddings: {e}")
+        print(f"Error saving embeddings: {e}")
         import traceback
         traceback.print_exc()
         return False
 
 
-def load_embeddings_data(metadata_file=None, embeddings_file=None, embedder=None):
+def load_embeddings_data(metadata_file=None, embeddings_file=None, embedder=None, user_id=None):
     """Load scraped data from embeddings and metadata files"""
-    if metadata_file is None:
-        metadata_file = SCRAPED_METADATA_FILE
-    if embeddings_file is None:
-        embeddings_file = SCRAPED_EMBEDDINGS_FILE
+    if metadata_file is None or embeddings_file is None:
+        # Use client-specific paths if user_id is provided
+        if user_id:
+            paths = get_client_file_paths(user_id)
+            if metadata_file is None:
+                metadata_file = paths["metadata_file"]
+            if embeddings_file is None:
+                embeddings_file = paths["embeddings_file"]
+        else:
+            if metadata_file is None:
+                metadata_file = SCRAPED_METADATA_FILE
+            if embeddings_file is None:
+                embeddings_file = SCRAPED_EMBEDDINGS_FILE
     
     try:
         # Load metadata
         if not os.path.exists(metadata_file):
-            print(f"⚠️ Metadata file {metadata_file} not found")
+            print(f"Metadata file {metadata_file} not found")
             return [], None
         
         with open(metadata_file, "rb") as f:
             pages_data = pickle.load(f)
         
         if not pages_data:
-            print(f"⚠️ No data in {metadata_file}")
+            print(f"No data in {metadata_file}")
             return [], None
         
         # Load embeddings
@@ -100,33 +137,43 @@ def load_embeddings_data(metadata_file=None, embeddings_file=None, embedder=None
                 texts = [text for _, text in pages_data]
                 embeddings = embedder.encode(texts, convert_to_tensor=True)
                 # Save the recreated embeddings
-                save_embeddings_data(pages_data, embeddings, metadata_file, embeddings_file)
+                save_embeddings_data(pages_data, embeddings, metadata_file, embeddings_file, user_id=user_id)
         
-        print(f"✅ Loaded {len(pages_data)} pages with embeddings")
+        print(f"Loaded {len(pages_data)} pages with embeddings")
         return pages_data, embeddings
         
     except Exception as e:
-        print(f"❌ Error loading embeddings: {e}")
+        print(f"Error loading embeddings: {e}")
         import traceback
         traceback.print_exc()
         return [], None
 
 
-def save_structured_embeddings_data(texts, sources, embeddings, metadata_file=None, embeddings_file=None):
+def save_structured_embeddings_data(texts, sources, embeddings, metadata_file=None, embeddings_file=None, user_id=None):
     """Save structured data as embeddings"""
-    if metadata_file is None:
-        metadata_file = STRUCTURED_METADATA_FILE
-    if embeddings_file is None:
-        embeddings_file = STRUCTURED_EMBEDDINGS_FILE
+    if metadata_file is None or embeddings_file is None:
+        # Use client-specific paths if user_id is provided
+        if user_id:
+            paths = get_client_file_paths(user_id)
+            if metadata_file is None:
+                metadata_file = paths["structured_metadata_file"]
+            if embeddings_file is None:
+                embeddings_file = paths["structured_embeddings_file"]
+        else:
+            if metadata_file is None:
+                metadata_file = STRUCTURED_METADATA_FILE
+            if embeddings_file is None:
+                embeddings_file = STRUCTURED_EMBEDDINGS_FILE
     
     # Ensure directory exists
-    os.makedirs(DATA_DIR, exist_ok=True)
+    target_dir = os.path.dirname(metadata_file)
+    os.makedirs(target_dir, exist_ok=True)
     
     try:
         # Save metadata
         with open(metadata_file, "wb") as f:
             pickle.dump({'texts': texts, 'sources': sources}, f)
-        print(f"✅ Saved structured metadata to {metadata_file}")
+        print(f"Saved structured metadata to {metadata_file}")
         
         # Save embeddings
         if embeddings is not None:
@@ -138,20 +185,29 @@ def save_structured_embeddings_data(texts, sources, embeddings, metadata_file=No
                 embeddings_np = np.array(embeddings)
             
             np.save(embeddings_file, embeddings_np)
-            print(f"✅ Saved structured embeddings to {embeddings_file} (shape: {embeddings_np.shape})")
+            print(f"Saved structured embeddings to {embeddings_file} (shape: {embeddings_np.shape})")
         
         return True
     except Exception as e:
-        print(f"❌ Error saving structured embeddings: {e}")
+        print(f"Error saving structured embeddings: {e}")
         return False
 
 
-def load_structured_embeddings_data(metadata_file=None, embeddings_file=None, embedder=None):
+def load_structured_embeddings_data(metadata_file=None, embeddings_file=None, embedder=None, user_id=None):
     """Load structured data from embeddings"""
-    if metadata_file is None:
-        metadata_file = STRUCTURED_METADATA_FILE
-    if embeddings_file is None:
-        embeddings_file = STRUCTURED_EMBEDDINGS_FILE
+    if metadata_file is None or embeddings_file is None:
+        # Use client-specific paths if user_id is provided
+        if user_id:
+            paths = get_client_file_paths(user_id)
+            if metadata_file is None:
+                metadata_file = paths["structured_metadata_file"]
+            if embeddings_file is None:
+                embeddings_file = paths["structured_embeddings_file"]
+        else:
+            if metadata_file is None:
+                metadata_file = STRUCTURED_METADATA_FILE
+            if embeddings_file is None:
+                embeddings_file = STRUCTURED_EMBEDDINGS_FILE
     
     try:
         if not os.path.exists(metadata_file):
@@ -171,16 +227,16 @@ def load_structured_embeddings_data(metadata_file=None, embeddings_file=None, em
                 embeddings = torch.from_numpy(embeddings_np)
             else:
                 embeddings = embeddings_np
-            print(f"✅ Loaded structured embeddings (shape: {embeddings_np.shape})")
+            print(f"Loaded structured embeddings (shape: {embeddings_np.shape})")
         else:
             # Recreate embeddings
             if embedder and structured_data_texts:
                 embeddings = embedder.encode(structured_data_texts, convert_to_tensor=True)
-                save_structured_embeddings_data(structured_data_texts, structured_data_sources, embeddings)
+                save_structured_embeddings_data(structured_data_texts, structured_data_sources, embeddings, user_id=user_id)
         
         return structured_data_texts, structured_data_sources, embeddings
     except Exception as e:
-        print(f"❌ Error loading structured embeddings: {e}")
+        print(f"Error loading structured embeddings: {e}")
         return [], [], None
 
 
@@ -215,6 +271,6 @@ def embeddings_match_website(pages_data, target_website):
         
         return False
     except Exception as e:
-        print(f"⚠️ Error checking website match: {e}")
+        print(f"Error checking website match: {e}")
         return False
 

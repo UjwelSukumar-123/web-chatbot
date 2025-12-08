@@ -53,7 +53,7 @@ def is_valid_content(text, min_length=50):
     return True
 
 
-def run_scraper(target_website, embedder, max_pages=200):
+def run_scraper(target_website, embedder, max_pages=200, user_id=None):
     """
     Run the scraper and process the results
     
@@ -63,7 +63,7 @@ def run_scraper(target_website, embedder, max_pages=200):
     print("Starting web scraping...")
     
     if not target_website:
-        print("❌ No target website set. Please set a website first.")
+        print("No target website set. Please set a website first.")
         return [], None, [], None, []
     
     print(f"Scraping website: {target_website}")
@@ -81,10 +81,10 @@ def run_scraper(target_website, embedder, max_pages=200):
                 url_text_pairs.append((url.strip(), cleaned_text))
         
         if not url_text_pairs:
-            print("⚠️ No valid pages scraped")
+            print("No valid pages scraped")
             return [], None, [], None, []
         
-        print(f"✅ Processed {len(url_text_pairs)} valid pages")
+        print(f"Processed {len(url_text_pairs)} valid pages")
         
         # Create embeddings
         scraped_data_embeddings = None
@@ -94,7 +94,7 @@ def run_scraper(target_website, embedder, max_pages=200):
             scraped_data_embeddings = embedder.encode(texts, convert_to_tensor=True)
             
             # Save embeddings and metadata
-            save_embeddings_data(url_text_pairs, scraped_data_embeddings)
+            save_embeddings_data(url_text_pairs, scraped_data_embeddings, user_id=user_id)
             
             print(f"Created and saved embeddings for {len(url_text_pairs)} pages")
         else:
@@ -171,7 +171,7 @@ def run_scraper(target_website, embedder, max_pages=200):
         if embedder and structured_data_texts:
             print(f"🔄 Creating embeddings for {len(structured_data_texts)} structured entries...")
             structured_data_embeddings = embedder.encode(structured_data_texts, convert_to_tensor=True)
-            save_structured_embeddings_data(structured_data_texts, structured_data_sources, structured_data_embeddings)
+            save_structured_embeddings_data(structured_data_texts, structured_data_sources, structured_data_embeddings, user_id=user_id)
             print(f"✅ Created and saved structured data embeddings")
         
         print("✅ Web scraping completed successfully! Data stored as embeddings.")

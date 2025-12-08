@@ -22,26 +22,42 @@ custom_data_sources: List[Dict] = []
 
 # Paths
 CUSTOM_DATA_DIR = "custom_data"
+
+def get_custom_data_dir(user_id: Optional[str] = None) -> str:
+    """Get the custom data directory for a specific client/user"""
+    if user_id:
+        return os.path.join(CUSTOM_DATA_DIR, f"client_{user_id}")
+    return CUSTOM_DATA_DIR
+
+def get_custom_data_file(user_id: Optional[str] = None) -> str:
+    """Get the custom data file path for a specific client"""
+    custom_dir = get_custom_data_dir(user_id)
+    return os.path.join(custom_dir, "custom_data.txt")
+
 CUSTOM_DATA_FILE = os.path.join(CUSTOM_DATA_DIR, "custom_data.txt")
 
 
-def load_custom_data(embedder=None):
+def load_custom_data(embedder=None, user_id=None):
     """Load custom data from file if it exists - handles correct format"""
     global custom_data_texts, custom_data_embeddings, custom_data_sources
     
-    # Ensure directory exists
-    os.makedirs(CUSTOM_DATA_DIR, exist_ok=True)
+    # Get client-specific file path
+    custom_data_file = get_custom_data_file(user_id)
+    custom_data_dir = get_custom_data_dir(user_id)
     
-    if not os.path.exists(CUSTOM_DATA_FILE):
-        print(f"⚠️ Custom data file {CUSTOM_DATA_FILE} not found")
+    # Ensure directory exists
+    os.makedirs(custom_data_dir, exist_ok=True)
+    
+    if not os.path.exists(custom_data_file):
+        print(f"Custom data file {custom_data_file} not found")
         return []
     
     try:
-        with open(CUSTOM_DATA_FILE, "r", encoding="utf-8") as f:
+        with open(custom_data_file, "r", encoding="utf-8") as f:
             content = f.read()
         
         if not content.strip():
-            print(f"⚠️ Custom data file {CUSTOM_DATA_FILE} is empty")
+            print(f"Custom data file {custom_data_file} is empty")
             return []
         
         # Split by separator, but handle case where file starts with separator
@@ -68,48 +84,52 @@ def load_custom_data(embedder=None):
                         'type': 'custom'
                     })
                 else:
-                    print(f"⚠️ Skipping invalid entry (missing title, category, or text)")
+                    print(f"Skipping invalid entry (missing title, category, or text)")
             else:
-                print(f"⚠️ Skipping entry with insufficient lines (expected at least 3, got {len(lines)})")
+                print(f"Skipping entry with insufficient lines (expected at least 3, got {len(lines)})")
         
-        print(f"✅ Loaded {len(custom_data_texts)} custom data entries from file")
+        print(f"Loaded {len(custom_data_texts)} custom data entries from file")
         
         # Create embeddings for custom data if embedder is available
         if embedder and custom_data_texts:
             try:
-                print(f"🔄 Creating embeddings for {len(custom_data_texts)} custom data entries...")
+                print(f"Creating embeddings for {len(custom_data_texts)} custom data entries...")
                 custom_data_embeddings = embedder.encode(custom_data_texts, convert_to_tensor=True)
-                print(f"✅ Created embeddings for {len(custom_data_texts)} custom data entries")
+                print(f"Created embeddings for {len(custom_data_texts)} custom data entries")
             except Exception as e:
-                print(f"❌ Error creating custom data embeddings: {e}")
+                print(f"Error creating custom data embeddings: {e}")
                 import traceback
                 traceback.print_exc()
                 custom_data_embeddings = None
         
         return custom_data_texts
     except Exception as e:
-        print(f"❌ Error loading custom data: {e}")
+        print(f"Error loading custom data: {e}")
         import traceback
         traceback.print_exc()
         return []
 
 
-def save_custom_data():
+def save_custom_data(user_id=None):
     """Save custom data to file in correct format"""
     global custom_data_texts, custom_data_sources
     
     try:
+        # Get client-specific file path
+        custom_data_file = get_custom_data_file(user_id)
+        custom_data_dir = get_custom_data_dir(user_id)
+        
         # Ensure directory exists
-        os.makedirs(CUSTOM_DATA_DIR, exist_ok=True)
+        os.makedirs(custom_data_dir, exist_ok=True)
         
         if not custom_data_texts or len(custom_data_texts) == 0:
             # If no data, create empty file or remove existing
-            if os.path.exists(CUSTOM_DATA_FILE):
-                with open(CUSTOM_DATA_FILE, "w", encoding="utf-8") as f:
+            if os.path.exists(custom_data_file):
+                with open(custom_data_file, "w", encoding="utf-8") as f:
                     f.write("")
             return True
         
-        with open(CUSTOM_DATA_FILE, "w", encoding="utf-8") as f:
+        with open(custom_data_file, "w", encoding="utf-8") as f:
             for i, (text, source) in enumerate(zip(custom_data_texts, custom_data_sources)):
                 # Write entry: title, category, content
                 f.write(f"{source['title']}\n")
@@ -119,10 +139,10 @@ def save_custom_data():
                 if i < len(custom_data_texts) - 1:
                     f.write("--- CUSTOM ENTRY ---\n")
         
-        print(f"✅ Custom data saved to {CUSTOM_DATA_FILE} ({len(custom_data_texts)} entries)")
+        print(f"Custom data saved to {custom_data_file} ({len(custom_data_texts)} entries)")
         return True
     except Exception as e:
-        print(f"❌ Error saving custom data: {e}")
+        print(f"Error saving custom data: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -153,7 +173,7 @@ def add_custom_data(title: str, category: str, content: str, embedder=None):
         if embedder:
             try:
                 # Create new embedding for the added content
-                print(f"🔄 Creating embedding for custom data: {title}")
+                print(f"Creating embedding for custom data: {title}")
                 new_embedding = embedder.encode([content], convert_to_tensor=True)
                 
                 if custom_data_embeddings is None:
@@ -166,10 +186,10 @@ def add_custom_data(title: str, category: str, content: str, embedder=None):
                         # Fallback to numpy concatenation
                         custom_data_embeddings = np.concatenate([custom_data_embeddings, new_embedding], axis=0)
                 
-                print(f"✅ Added custom data with embedding: {title} ({category})")
+                print(f"Added custom data with embedding: {title} ({category})")
                 return True, "Custom data added successfully"
             except Exception as e:
-                print(f"❌ Error creating embedding for new custom data: {e}")
+                print(f"Error creating embedding for new custom data: {e}")
                 import traceback
                 traceback.print_exc()
                 # Remove the added entry if embedding fails
@@ -179,10 +199,10 @@ def add_custom_data(title: str, category: str, content: str, embedder=None):
                     custom_data_sources.pop()
                 return False, f"Error creating embedding: {str(e)}"
         else:
-            print(f"✅ Added custom data (no embedding): {title} ({category})")
+            print(f"Added custom data (no embedding): {title} ({category})")
             return True, "Custom data added successfully (embeddings not available)"
     except Exception as e:
-        print(f"❌ Error in add_custom_data: {e}")
+        print(f"Error in add_custom_data: {e}")
         import traceback
         traceback.print_exc()
         # Clean up if something went wrong
@@ -210,7 +230,7 @@ def remove_custom_data(index: int, embedder=None):
         if embedder and custom_data_texts:
             try:
                 custom_data_embeddings = embedder.encode(custom_data_texts, convert_to_tensor=True)
-                print(f"✅ Recreated embeddings after removing custom data")
+                print(f"Recreated embeddings after removing custom data")
             except Exception as e:
                 print(f"Error recreating embeddings: {e}")
                 custom_data_embeddings = np.array([])

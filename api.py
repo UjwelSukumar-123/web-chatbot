@@ -79,11 +79,57 @@ def create_app(
     app = FastAPI(title="Web Chatbot System", version="1.0.0")
     
     # Helper to access state
-    def get_state(key, default=None):
+    def get_state(key, default=None, user_id=None):
+        """Get state - if user_id provided, get user-specific state"""
+        if user_id:
+            user_key = f"user_{user_id}_{key}"
+            return app_state.get(user_key, default)
         return app_state.get(key, default)
     
-    def set_state(key, value):
-        app_state[key] = value
+    def set_state(key, value, user_id=None):
+        """Set state - if user_id provided, set user-specific state"""
+        if user_id:
+            user_key = f"user_{user_id}_{key}"
+            app_state[user_key] = value
+        else:
+            app_state[key] = value
+    
+    def get_user_state(user_id):
+        """Get all state keys for a specific user"""
+        prefix = f"user_{user_id}_"
+        user_state = {}
+        for key, value in app_state.items():
+            if key.startswith(prefix):
+                original_key = key[len(prefix):]
+                user_state[original_key] = value
+        return user_state
+    
+    def load_user_data(user_id, embedder):
+        """Load all data for a specific user"""
+        from custom_data import load_custom_data, get_custom_data, get_custom_data_embeddings
+        
+        print(f"📂 Loading data for user {user_id}...")
+        pages_data, embeddings = load_embeddings_data(embedder=embedder, user_id=user_id)
+        if pages_data:
+            set_state("scraped_data_pages", pages_data, user_id=user_id)
+            set_state("scraped_data_texts", [text for _, text in pages_data], user_id=user_id)
+            set_state("scraped_data_embeddings", embeddings, user_id=user_id)
+            print(f"✅ Loaded {len(pages_data)} pages for user {user_id}")
+        
+        structured_texts, structured_sources, structured_emb = load_structured_embeddings_data(embedder=embedder, user_id=user_id)
+        if structured_texts:
+            set_state("structured_data_texts", structured_texts, user_id=user_id)
+            set_state("structured_data_embeddings", structured_emb, user_id=user_id)
+            set_state("structured_data_sources", structured_sources, user_id=user_id)
+            print(f"✅ Loaded {len(structured_texts)} structured entries for user {user_id}")
+        
+        load_custom_data(embedder=embedder, user_id=user_id)
+        custom_texts, custom_sources = get_custom_data()
+        set_state("custom_data_texts", custom_texts, user_id=user_id)
+        set_state("custom_data_embeddings", get_custom_data_embeddings(), user_id=user_id)
+        set_state("custom_data_sources", custom_sources, user_id=user_id)
+        if custom_texts:
+            print(f"✅ Loaded {len(custom_texts)} custom entries for user {user_id}")
     
     @app.get('/', response_class=HTMLResponse)
     async def index():
@@ -250,10 +296,19 @@ def create_app(
             )
     
     @app.post('/ask')
-    async def ask(question: str = Form(...), chatbot_type: str = Form("openai")):
+    async def ask(
+        question: str = Form(...), 
+        chatbot_type: str = Form("openai"),
+        current_user: dict = Depends(get_current_user)
+    ):
         try:
+            user_id = current_user.get("user_id")
             question = question.strip()
             chatbot_type = chatbot_type or 'openai'
+            
+            # Load user data if not already loaded
+            if not get_state("scraped_data_pages", user_id=user_id):
+                load_user_data(user_id, embedder)
             
             if not question:
                 return JSONResponse(content={"answer": "Please enter a question.", "source_urls": []})
@@ -261,10 +316,10 @@ def create_app(
             # Check if user is introducing themselves (e.g., "I am John", "my name is Sarah")
             extracted_name = extract_name_from_introduction(question)
             if extracted_name:
-                set_state("user_name", extracted_name)
+                set_state("user_name", extracted_name, user_id=user_id)
                 company_info = ""
                 # Try to get company info from scraped data if available
-                scraped_pages = get_state("scraped_data_pages")
+                scraped_pages = get_state("scraped_data_pages", user_id=user_id)
                 if scraped_pages:
                     first_chunk_text = scraped_pages[0][1] if scraped_pages else ""
                     if "PAGE TITLE:" in first_chunk_text:
@@ -290,8 +345,8 @@ def create_app(
                 answer, urls = basic_chatbot_response(
                     question, 
                     embedder, 
-                    get_state("scraped_data_pages"), 
-                    get_state("scraped_data_embeddings")
+                    get_state("scraped_data_pages", user_id=user_id), 
+                    get_state("scraped_data_embeddings", user_id=user_id)
                 )
                 return JSONResponse(content={"answer": answer, "source_urls": urls})
             else:
@@ -318,20 +373,20 @@ def create_app(
                 relevant_chunks = retrieve_relevant_chunks(
                     question,
                     embedder,
-                    get_state("scraped_data_pages"),
-                    get_state("scraped_data_embeddings"),
-                    get_state("structured_data_texts"),
-                    get_state("structured_data_embeddings"),
-                    get_state("structured_data_sources"),
-                    get_state("custom_data_texts"),
-                    get_state("custom_data_embeddings"),
-                    get_state("custom_data_sources"),
+                    get_state("scraped_data_pages", user_id=user_id),
+                    get_state("scraped_data_embeddings", user_id=user_id),
+                    get_state("structured_data_texts", user_id=user_id),
+                    get_state("structured_data_embeddings", user_id=user_id),
+                    get_state("structured_data_sources", user_id=user_id),
+                    get_state("custom_data_texts", user_id=user_id),
+                    get_state("custom_data_embeddings", user_id=user_id),
+                    get_state("custom_data_sources", user_id=user_id),
                     top_k=top_k,
                     similarity_threshold=0.3  # Only return chunks with similarity >= 0.3 to avoid irrelevant responses
                 )
                 
                 # Get stored user name for personalized greetings
-                stored_user_name = get_state("user_name") or ""
+                stored_user_name = get_state("user_name", user_id=user_id) or ""
                 
                 answer, urls, token_usage = generate_openai_response(
                     question,
@@ -353,11 +408,12 @@ def create_app(
             return JSONResponse(content={"answer": f"Internal server error: {e}", "source_urls": []})
     
     @app.get('/scraping_status')
-    async def get_scraping_status():
-        scraping_in_progress = get_state("scraping_in_progress") or False
-        scraping_complete = get_state("scraping_complete") or False
-        target_website = get_state("target_website") or ""
-        scraped_pages = get_state("scraped_data_pages") or []
+    async def get_scraping_status(current_user: dict = Depends(get_current_user)):
+        user_id = current_user.get("user_id")
+        scraping_in_progress = get_state("scraping_in_progress", user_id=user_id) or False
+        scraping_complete = get_state("scraping_complete", user_id=user_id) or False
+        target_website = get_state("target_website", user_id=user_id) or ""
+        scraped_pages = get_state("scraped_data_pages", user_id=user_id) or []
         
         # If scraping is complete but flag is not set, check if we have data
         if not scraping_complete and not scraping_in_progress and len(scraped_pages) > 0:
@@ -375,8 +431,12 @@ def create_app(
     # Note: /start_scraping route is added in main.py to access the threaded function
     
     @app.post('/set_website')
-    async def set_website_route(request_data: WebsiteRequest):
+    async def set_website_route(
+        request_data: WebsiteRequest,
+        current_user: dict = Depends(get_current_user)
+    ):
         try:
+            user_id = current_user.get("user_id")
             new_website = request_data.website.strip()
             
             if not new_website:
@@ -385,19 +445,22 @@ def create_app(
             if not new_website.startswith(('http://', 'https://')):
                 new_website = 'https://' + new_website
             
+            # Update user's website URL in database
+            update_user_website(current_user["email"], new_website)
+            
             # If website changed, clear old data
-            if get_state("target_website") != new_website:
-                print(f"⚠️ Website changed from {get_state('target_website')} to {new_website}. Clearing old data...")
-                set_state("scraped_data_pages", [])
-                set_state("scraped_data_texts", [])
-                set_state("scraped_data_embeddings", None)
-                set_state("structured_data_texts", [])
-                set_state("structured_data_embeddings", None)
-                set_state("structured_data_sources", [])
-                set_state("scraping_complete", False)
+            if get_state("target_website", user_id=user_id) != new_website:
+                print(f"⚠️ Website changed from {get_state('target_website', user_id=user_id)} to {new_website}. Clearing old data for user {user_id}...")
+                set_state("scraped_data_pages", [], user_id=user_id)
+                set_state("scraped_data_texts", [], user_id=user_id)
+                set_state("scraped_data_embeddings", None, user_id=user_id)
+                set_state("structured_data_texts", [], user_id=user_id)
+                set_state("structured_data_embeddings", None, user_id=user_id)
+                set_state("structured_data_sources", [], user_id=user_id)
+                set_state("scraping_complete", False, user_id=user_id)
                 print("Old data cleared")
             
-            set_state("target_website", new_website)
+            set_state("target_website", new_website, user_id=user_id)
             print(f"Target website updated to: {new_website}")
             
             response_data = {
@@ -416,28 +479,30 @@ def create_app(
             return JSONResponse(content={"status": "error", "message": f"Error setting website: {str(e)}"})
     
     @app.get('/get_website')
-    async def get_website():
+    async def get_website(current_user: dict = Depends(get_current_user)):
+        user_id = current_user.get("user_id")
+        # Get website from user record or state
+        website = current_user.get("website_url") or get_state("target_website", user_id=user_id) or ""
         return JSONResponse(content={
-            "website": get_state("target_website"),
+            "website": website,
             "status": "success"
         })
     
     @app.post('/reload_data')
-    async def reload_data():
+    async def reload_data(current_user: dict = Depends(get_current_user)):
         try:
+            user_id = current_user.get("user_id")
             if not embedder:
                 return JSONResponse(content={
                     "status": "error",
                     "message": "Sentence transformer embedder not available"
                 })
             
-            print("🔄 Manually reloading scraped data from embeddings...")
-            pages_data, embeddings = load_embeddings_data(embedder=embedder)
+            print(f"🔄 Manually reloading scraped data from embeddings for user {user_id}...")
+            load_user_data(user_id, embedder)
+            pages_data = get_state("scraped_data_pages", user_id=user_id)
             
             if pages_data:
-                set_state("scraped_data_pages", pages_data)
-                set_state("scraped_data_texts", [text for _, text in pages_data])
-                set_state("scraped_data_embeddings", embeddings)
                 return JSONResponse(content={
                     "status": "success",
                     "message": f"Successfully reloaded {len(pages_data)} pages from embeddings",
@@ -516,7 +581,10 @@ def create_app(
             })
     
     @app.post('/add_custom_data')
-    async def add_custom_data_route(request_data: CustomDataRequest):
+    async def add_custom_data_route(
+        request_data: CustomDataRequest,
+        current_user: dict = Depends(get_current_user)
+    ):
         try:
             title = request_data.title.strip() if request_data.title else ""
             category = request_data.category.strip() if request_data.category else ""
@@ -531,19 +599,20 @@ def create_app(
                     }
                 )
             
-            print(f"📝 Adding custom data: title='{title}', category='{category}'")
+            user_id = current_user.get("user_id")
+            print(f"📝 Adding custom data: title='{title}', category='{category}' for user {user_id}")
             success, message = add_custom_data(title, category, content, embedder)
             
             if success:
-                save_success = save_custom_data()
+                save_success = save_custom_data(user_id=user_id)
                 if not save_success:
                     print(f"⚠️ Warning: Failed to save custom data to file, but data was added to memory")
                 
-                # Update global state
+                # Update user-specific state
                 custom_data_texts_new, custom_data_sources_new = get_custom_data()
-                set_state("custom_data_texts", custom_data_texts_new)
-                set_state("custom_data_embeddings", get_custom_data_embeddings())
-                set_state("custom_data_sources", custom_data_sources_new)
+                set_state("custom_data_texts", custom_data_texts_new, user_id=user_id)
+                set_state("custom_data_embeddings", get_custom_data_embeddings(), user_id=user_id)
+                set_state("custom_data_sources", custom_data_sources_new, user_id=user_id)
                 
                 return JSONResponse(
                     status_code=200,
@@ -580,10 +649,17 @@ def create_app(
             )
     
     @app.get('/get_custom_data')
-    async def get_custom_data_route():
+    async def get_custom_data_route(current_user: dict = Depends(get_current_user)):
         try:
+            user_id = current_user.get("user_id")
+            # Load user data if not already loaded
+            if not get_state("custom_data_texts", user_id=user_id):
+                load_user_data(user_id, embedder)
+            
             custom_entries = []
-            for i, (text, source) in enumerate(zip(get_state("custom_data_texts"), get_state("custom_data_sources"))):
+            custom_texts = get_state("custom_data_texts", user_id=user_id) or []
+            custom_sources = get_state("custom_data_sources", user_id=user_id) or []
+            for i, (text, source) in enumerate(zip(custom_texts, custom_sources)):
                 custom_entries.append({
                     'index': i,
                     'title': source['title'],
@@ -605,8 +681,12 @@ def create_app(
             })
     
     @app.post('/remove_custom_data')
-    async def remove_custom_data_route(request_data: RemoveCustomDataRequest):
+    async def remove_custom_data_route(
+        request_data: RemoveCustomDataRequest,
+        current_user: dict = Depends(get_current_user)
+    ):
         try:
+            user_id = current_user.get("user_id")
             index = request_data.index
             
             if index is None:
@@ -618,12 +698,12 @@ def create_app(
             success, message = remove_custom_data(index, embedder)
             
             if success:
-                save_custom_data()
-                # Update global state
+                save_custom_data(user_id=user_id)
+                # Update user-specific state
                 custom_data_texts_new, custom_data_sources_new = get_custom_data()
-                set_state("custom_data_texts", custom_data_texts_new)
-                set_state("custom_data_embeddings", get_custom_data_embeddings())
-                set_state("custom_data_sources", custom_data_sources_new)
+                set_state("custom_data_texts", custom_data_texts_new, user_id=user_id)
+                set_state("custom_data_embeddings", get_custom_data_embeddings(), user_id=user_id)
+                set_state("custom_data_sources", custom_data_sources_new, user_id=user_id)
                 
                 return JSONResponse(content={
                     "status": "success",
@@ -643,12 +723,15 @@ def create_app(
             })
     
     @app.get('/custom_data_stats')
-    async def custom_data_stats():
+    async def custom_data_stats(current_user: dict = Depends(get_current_user)):
+        user_id = current_user.get("user_id")
+        custom_texts = get_state("custom_data_texts", user_id=user_id) or []
+        scraped_pages = get_state("scraped_data_pages", user_id=user_id) or []
         return JSONResponse(content={
-            "total_custom_entries": len(get_state("custom_data_texts")),
-            "total_scraped_pages": len(get_state("scraped_data_pages")),
-            "custom_data_available": len(get_state("custom_data_texts")) > 0,
-            "scraped_data_available": len(get_state("scraped_data_pages")) > 0
+            "total_custom_entries": len(custom_texts),
+            "total_scraped_pages": len(scraped_pages),
+            "custom_data_available": len(custom_texts) > 0,
+            "scraped_data_available": len(scraped_pages) > 0
         })
     
     @app.get('/health')

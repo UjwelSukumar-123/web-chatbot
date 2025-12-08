@@ -43,21 +43,21 @@ def test_api_health():
     try:
         response = requests.get(f"{BASE_URL}/health")
         if response.status_code == 200:
-            print("✅ API is running and healthy")
+            print("API is running and healthy")
             return True
         else:
-            print(f"❌ API returned status code: {response.status_code}")
+            print(f"API returned status code: {response.status_code}")
             return False
     except requests.exceptions.ConnectionError:
-        print("❌ Cannot connect to API. Make sure the Flask app is running.")
+        print("Cannot connect to API. Make sure the Flask app is running.")
         return False
 
 def add_demo_data():
     """Add all demo data entries"""
-    print("\n🚀 Adding demo company data...")
+    print("\n Adding demo company data...")
     
     for i, data in enumerate(DEMO_DATA, 1):
-        print(f"\n📝 Adding entry {i}/{len(DEMO_DATA)}: {data['title']}")
+        print(f"\n Adding entry {i}/{len(DEMO_DATA)}: {data['title']}")
         
         try:
             response = requests.post(
@@ -69,21 +69,21 @@ def add_demo_data():
             if response.status_code == 200:
                 result = response.json()
                 if result['status'] == 'success':
-                    print(f"   ✅ Successfully added: {data['title']}")
+                    print(f"   Successfully added: {data['title']}")
                 else:
-                    print(f"   ❌ Failed to add: {result['message']}")
+                    print(f"   Failed to add: {result['message']}")
             else:
-                print(f"   ❌ HTTP error: {response.status_code}")
+                print(f"   HTTP error: {response.status_code}")
                 
         except Exception as e:
-            print(f"   ❌ Error: {str(e)}")
+            print(f"   Error: {str(e)}")
         
         # Small delay between requests
         time.sleep(0.5)
 
 def view_custom_data():
     """View all custom data entries"""
-    print("\n📋 Viewing custom data entries...")
+    print("\n Viewing custom data entries...")
     
     try:
         response = requests.get(f"{BASE_URL}/get_custom_data")
@@ -94,38 +94,38 @@ def view_custom_data():
                 print(f"   📊 Total entries: {len(entries)}")
                 
                 for entry in entries:
-                    print(f"\n   📝 {entry['title']}")
+                    print(f"\n    {entry['title']}")
                     print(f"      Category: {entry['category']}")
                     print(f"      Preview: {entry['content'][:100]}...")
             else:
-                print(f"   ❌ Error: {data['message']}")
+                print(f"    Error: {data['message']}")
         else:
-            print(f"   ❌ HTTP error: {response.status_code}")
+            print(f"    HTTP error: {response.status_code}")
             
     except Exception as e:
-        print(f"   ❌ Error: {str(e)}")
+        print(f"    Error: {str(e)}")
 
 def get_custom_data_stats():
     """Get statistics about custom data"""
-    print("\n📊 Getting custom data statistics...")
+    print("\n Getting custom data statistics...")
     
     try:
         response = requests.get(f"{BASE_URL}/custom_data_stats")
         if response.status_code == 200:
             data = response.json()
-            print(f"   📈 Custom entries: {data['total_custom_entries']}")
-            print(f"   🌐 Scraped pages: {data['total_scraped_pages']}")
-            print(f"   ✅ Custom data available: {data['custom_data_available']}")
-            print(f"   ✅ Scraped data available: {data['scraped_data_available']}")
+            print(f"    Custom entries: {data['total_custom_entries']}")
+            print(f"    Scraped pages: {data['total_scraped_pages']}")
+            print(f"    Custom data available: {data['custom_data_available']}")
+            print(f"    Scraped data available: {data['scraped_data_available']}")
         else:
-            print(f"   ❌ HTTP error: {response.status_code}")
+            print(f"    HTTP error: {response.status_code}")
             
     except Exception as e:
-        print(f"   ❌ Error: {str(e)}")
+        print(f"    Error: {str(e)}")
 
 def test_chatbot_with_custom_data():
     """Test the chatbot with a question that should use custom data"""
-    print("\n🤖 Testing chatbot with custom data...")
+    print("\n Testing chatbot with custom data...")
     
     test_questions = [
         "What is your company mission?",
@@ -136,7 +136,7 @@ def test_chatbot_with_custom_data():
     ]
     
     for question in test_questions:
-        print(f"\n   ❓ Question: {question}")
+        print(f"\n    Question: {question}")
         
         try:
             response = requests.post(
@@ -152,16 +152,16 @@ def test_chatbot_with_custom_data():
                 answer = result['answer']
                 sources = result['source_urls']
                 
-                print(f"   🤖 Answer: {answer[:200]}...")
+                print(f"    Answer: {answer[:200]}...")
                 if sources:
-                    print(f"   📚 Sources: {', '.join(sources)}")
+                    print(f"    Sources: {', '.join(sources)}")
                 else:
-                    print(f"   📚 Sources: None")
+                    print(f"    Sources: None")
             else:
-                print(f"   ❌ HTTP error: {response.status_code}")
+                print(f"    HTTP error: {response.status_code}")
                 
         except Exception as e:
-            print(f"   ❌ Error: {str(e)}")
+            print(f"    Error: {str(e)}")
         
         time.sleep(1)  # Delay between questions
 
